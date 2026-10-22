@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Penpot → Illustrator</title>
+<style>
+  :root {
+    --bg:#323232; --fg:#e6e6e6; --muted:#ababab; --field:#242424; --field-bd:#454545; --hover:#3c3c3c;
+    --sep:#262626; --chip:#3d3d3d; --acc:#378ef0; --acc-h:#4b9cf5; --acc-fg:#fff; --focus:#5aa6ff;
+    --ok:#5fbf7a; --warn:#e8b54a; --err:#f26b6b; --coffee:#f28a30; --coffee-h:#f59a4a; --foot:#2d2d2d;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--fg); font:12px/1.4 "Segoe UI", -apple-system, system-ui, sans-serif;
+         display:flex; flex-direction:column; overflow:hidden; -webkit-font-smoothing:antialiased; }
+  [hidden] { display:none !important; }
+  button, input, select { font:inherit; color:inherit; }
+  :focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+
+  #scroll { flex:1; overflow-y:auto; overflow-x:hidden; }
+  #scroll::-webkit-scrollbar { width:10px; } #scroll::-webkit-scrollbar-thumb { background:var(--chip); border-radius:5px; border:2px solid var(--bg); }
+
+  .sec { border-bottom:1px solid var(--sep); }
+  .sec-h { width:100%; height:32px; display:flex; align-items:center; gap:6px; padding:0 10px; background:none; border:0; cursor:pointer; text-align:left; }
+  .sec-h:hover { background:var(--hover); }
+  .sec-h .chev { width:10px; height:10px; flex:none; transition:transform .15s; fill:var(--muted); }
+  .sec[data-open] .sec-h .chev { transform:rotate(90deg); }
+  .sec-h .ttl { font-weight:600; font-size:11.5px; white-space:nowrap; }
+  .sec-h .sum { margin-left:auto; color:var(--muted); font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:60%; }
+  .sec-b { padding:2px 10px 10px; }
+  .sec:not([data-open]) .sec-b { display:none; }
+
+  .row { display:flex; gap:6px; align-items:center; margin-top:6px; }
+  .row.between { justify-content:space-between; }
+  .grow { flex:1; min-width:0; }
+  input[type=text], input[type=password], input[type=search], select {
+    width:100%; height:26px; background:var(--field); border:1px solid var(--field-bd); border-radius:4px; padding:0 8px; font-size:11.5px; }
+  input::placeholder { color:var(--muted); opacity:.8; }
+  input:focus, select:focus { border-color:var(--acc); outline:none; box-shadow:0 0 0 1px var(--acc); }
+  select { padding-right:4px; }
+  .btn { height:26px; padding:0 10px; display:inline-flex; align-items:center; gap:5px; background:var(--chip); border:1px solid var(--field-bd);
+         border-radius:4px; cursor:pointer; white-space:nowrap; font-size:11.5px; }
+  .btn:hover { background:var(--hover); border-color:var(--muted); }
+  .btn svg { width:13px; height:13px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  .ibtn { width:26px; padding:0; justify-content:center; }
+  .link { background:none; border:0; padding:2px 0; color:var(--acc-h); cursor:pointer; font-size:11.5px; display:inline-flex; align-items:center; gap:5px; }
+  .link:hover { text-decoration:underline; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--muted); flex:none; }
+  .dot.ok { background:var(--ok); } .dot.err { background:var(--err); }
+  .hint { color:var(--muted); font-size:11px; margin-top:6px; }
+  .sub { margin-top:8px; padding:8px; border:1px solid var(--sep); border-radius:6px; background:rgba(0,0,0,.06); }
+
+  label.cb { display:flex; align-items:flex-start; gap:7px; margin-top:7px; cursor:pointer; font-size:11.5px; }
+  label.cb span { min-width:0; overflow-wrap:anywhere; }
+  input[type=checkbox] { width:13px; height:13px; margin:1px 0 0; accent-color:var(--acc); flex:none; cursor:pointer; }
+  .seg { display:flex; border:1px solid var(--field-bd); border-radius:4px; overflow:hidden; background:var(--field); }
+  .seg button { flex:1; height:24px; border:0; background:none; cursor:pointer; font-size:11.5px; color:var(--muted); padding:0 8px; white-space:nowrap; }
+  .seg button + button { border-left:1px solid var(--field-bd); }
+  .seg button[aria-checked=true] { background:var(--chip); color:var(--fg); font-weight:600; }
+  .lbl { color:var(--muted); font-size:11px; white-space:nowrap; }
+
+  .list { margin-top:6px; border:1px solid var(--field-bd); border-radius:4px; background:var(--field); max-height:236px; overflow:auto; }
+  .list .head { position:sticky; top:0; z-index:1; display:flex; align-items:center; gap:7px; padding:0 8px; height:26px; background:var(--field);
+                border-bottom:1px solid var(--field-bd); font-size:11px; color:var(--muted); cursor:pointer; }
+  .board { display:flex; align-items:center; gap:7px; padding:0 8px; height:24px; cursor:pointer; font-size:11.5px; }
+  .board:hover { background:var(--hover); }
+  .board .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .board .sz { color:var(--muted); font-size:10.5px; font-variant-numeric:tabular-nums; }
+
+  .files { max-height:260px; }
+  .files .proj { position:sticky; top:0; z-index:1; display:flex; align-items:center; gap:6px; height:24px; padding:0 8px; background:var(--field);
+                 border-bottom:1px solid var(--field-bd); font-size:10.5px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .files .proj .cnt { margin-left:auto; font-weight:400; letter-spacing:0; }
+  .files .file { display:flex; align-items:center; gap:7px; padding:0 8px; height:26px; cursor:pointer; font-size:11.5px; border:0; background:none; width:100%; text-align:left; }
+  .files .file:hover { background:var(--hover); }
+  .files .file[aria-selected=true] { background:var(--acc); color:var(--acc-fg); }
+  .files .file[aria-selected=true] .when { color:var(--acc-fg); opacity:.85; }
+  .files .file svg { width:13px; height:13px; flex:none; fill:none; stroke:currentColor; stroke-width:2; opacity:.7; }
+  .files .file .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .files .file .when { color:var(--muted); font-size:10.5px; white-space:nowrap; }
+  .files .empty { padding:10px 8px; color:var(--muted); font-size:11px; }
+
+  .fonts { width:100%; border-collapse:collapse; margin-top:4px; table-layout:fixed; }
+  .fonts td { padding:3px 0; vertical-align:middle; font-size:11.5px; }
+  .fonts td.st { width:20px; text-align:center; font-weight:700; cursor:help; }
+  .fonts td.fn { white-space:nowrap; padding-right:8px; overflow:hidden; text-overflow:ellipsis; width:52%; }
+  .fonts td input { height:22px; font-size:11px; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .err { color:var(--err); }
+
+  .act { padding:10px 10px 8px; border-top:1px solid var(--sep); background:var(--bg); }
+  .cta { width:100%; height:32px; border-radius:16px; border:0; background:var(--acc); color:var(--acc-fg); font-weight:600; font-size:12.5px; cursor:pointer; }
+  .cta:hover { background:var(--acc-h); }
+  .cta:disabled { opacity:.45; cursor:default; }
+  .progress { height:3px; background:var(--field); border-radius:2px; overflow:hidden; margin-bottom:8px; }
+  .progress i { display:block; height:100%; width:0; background:var(--acc); transition:width .2s; }
+  #status { margin-top:7px; font-size:11.5px; min-height:16px; color:var(--muted); }
+  #status.ok { color:var(--ok); } #status.warn { color:var(--warn); } #status.err { color:var(--err); }
+  .logbar { display:flex; align-items:center; gap:8px; margin-top:6px; }
+  .chip { font-size:10.5px; padding:0 6px; height:16px; line-height:16px; border-radius:8px; background:var(--chip); }
+  #log { margin-top:6px; max-height:150px; overflow:auto; font-size:11px; border:1px solid var(--sep); border-radius:4px; padding:4px 6px; background:var(--field); }
+  .ln { padding:1px 0; word-break:break-word; }
+
+  footer { height:30px; flex:none; display:flex; align-items:center; gap:8px; padding:0 8px 0 10px; border-top:1px solid var(--sep); background:var(--foot); }
+  footer .seg button { height:20px; font-size:10.5px; padding:0 7px; }
+  .author { margin-left:auto; color:var(--muted); font-size:10.5px; white-space:nowrap; }
+  .coffee { width:22px; height:22px; border-radius:50%; border:0; background:var(--coffee); cursor:pointer; display:flex; align-items:center; justify-content:center; flex:none; }
+  .coffee:hover { background:var(--coffee-h); transform:translateY(-1px); }
+  .coffee svg { width:13px; height:13px; fill:none; stroke:#fff; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 10 10"><path d="M3 1.5 7 5 3 8.5z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-cup" viewBox="0 0 24 24"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3.5c0 1 1 1.2 1 2.2M12 3.5c0 1 1 1.2 1 2.2"/></symbol>
+</svg>
+
+<main id="scroll">
+  <section class="sec" id="secSource" data-open>
+    <button class="sec-h" aria-expanded="true" aria-controls="bSource"><svg class="chev"><use href="#i-chev"/></svg>
+      <span class="ttl" data-i18n="sec.source">Файл Penpot</span><span class="sum" id="sumSource"></span></button>
+    <div class="sec-b" id="bSource">
+      <div class="seg" role="radiogroup" id="srcMode" style="margin-top:4px">
+        <button role="radio" data-v="browse" data-i18n="src.browse">Проекты</button>
+        <button role="radio" data-v="link" data-i18n="src.link">Ссылка</button>
+      </div>
+      <div id="browse">
+        <div class="row" id="teamRow" hidden><select id="team" class="grow" data-i18n-title="lbl.team"></select></div>
+        <div class="row">
+          <input id="fileFilter" type="search" class="grow" data-i18n-ph="ph.fileFilter">
+          <button id="refreshFiles" class="btn ibtn" data-i18n-title="btn.refresh"><svg><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="list files" id="files" role="listbox" data-i18n-title="src.browse"></div>
+      </div>
+      <div class="row" id="linkRow" hidden>
+        <input id="link" type="text" spellcheck="false" data-i18n-ph="ph.link" class="grow">
+        <button id="loadApi" class="btn"><svg><use href="#i-down"/></svg><span data-i18n="btn.load">Загрузить</span></button>
+      </div>
+      <div class="row between">
+        <label class="link"><svg width="13" height="13" style="fill:none;stroke:currentColor;stroke-width:2"><use href="#i-file"/></svg>
+          <span data-i18n="btn.openJson">Открыть JSON…</span><input id="jsonFile" type="file" accept=".json,application/json" hidden></label>
+        <button class="link" id="connToggle" aria-expanded="false" aria-controls="conn"><span class="dot" id="connDot"></span><span data-i18n="btn.conn">Подключение</span></button>
+      </div>
+      <div class="sub" id="conn" hidden>
+        <input id="server" type="text" spellcheck="false" placeholder="https://penpot.example.ru" aria-label="Server URL">
+        <div class="row">
+          <input id="token" type="password" spellcheck="false" data-i18n-ph="ph.token" class="grow">
+          <button id="showToken" class="btn ibtn" data-i18n-title="btn.showToken"><svg><use href="#i-eye"/></svg></button>
+          <button id="check" class="btn" data-i18n="btn.check">Проверить</button>
+        </div>
+        <div class="hint" data-i18n="hint.token">Токен: Penpot → Ваш аккаунт → Токены доступа</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="secBoards" data-open hidden>
+    <button class="sec-h" aria-expanded="true" aria-controls="bBoards"><svg class="chev"><use href="#i-chev"/></svg>
+      <span class="ttl" data-i18n="sec.boards">Доски</span><span class="sum" id="sumBoards"></span></button>
+    <div class="sec-b" id="bBoards">
+      <div class="row"><select id="page" class="grow" data-i18n-title="lbl.page"></select></div>
+      <div class="row" id="filterRow" hidden><input id="filter" type="search" data-i18n-ph="ph.filter"></div>
+      <div class="list" role="group" data-i18n-title="sec.boards">
+        <label class="head"><input type="checkbox" id="all"><span data-i18n="selectAll">Выбрать все</span></label>
+        <div id="boards"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="secFonts" hidden>
+    <button class="sec-h" aria-expanded="false" aria-controls="bFonts"><svg class="chev"><use href="#i-chev"/></svg>
+      <span class="ttl" data-i18n="sec.fonts">Шрифты</span><span class="sum" id="sumFonts"></span></button>
+    <div class="sec-b" id="bFonts">
+      <table class="fonts"><tbody id="fonts"></tbody></table>
+      <label class="cb"><input type="checkbox" id="autoFonts"><span data-i18n="fonts.auto">Недостающие шрифты скачивать из Google Fonts</span></label>
+    </div>
+  </section>
+
+  <section class="sec" id="secOptions" hidden>
+    <button class="sec-h" aria-expanded="false" aria-controls="bOptions"><svg class="chev"><use href="#i-chev"/></svg>
+      <span class="ttl" data-i18n="sec.options">Параметры сборки</span><span class="sum" id="sumOptions"></span></button>
+    <div class="sec-b" id="bOptions">
+      <div class="seg" role="radiogroup" id="target" style="margin-top:4px">
+        <button role="radio" data-v="new" data-i18n="opt.new">Новый документ</button>
+        <button role="radio" data-v="current" data-i18n="opt.current">Текущий документ</button>
+      </div>
+      <div class="row"><span class="lbl" data-i18n="opt.layout">Расположение</span>
+        <select id="layout" class="grow"><option value="penpot" data-i18n="opt.layout.penpot">Как на холсте Penpot</option><option value="grid" data-i18n="opt.layout.grid">Сеткой</option></select></div>
+      <label class="cb"><input type="checkbox" id="keepHidden"><span data-i18n="opt.hidden">Переносить скрытые слои (скрытыми)</span></label>
+      <label class="cb"><input type="checkbox" id="guides"><span data-i18n="opt.guides">Модульные сетки → направляющие</span></label>
+      <label class="cb"><input type="checkbox" id="embed"><span data-i18n="opt.embed">Встраивать картинки</span></label>
+    </div>
+  </section>
+
+  <div class="hint" id="emptyHint" style="padding:10px" data-i18n="hint.start">Вставьте ссылку на файл Penpot или откройте JSON-файл.</div>
+</main>
+
+<div class="act">
+  <div class="progress" id="progress" hidden><i id="progressBar"></i></div>
+  <button id="build" class="cta" disabled data-i18n="btn.build.none">Выберите доски</button>
+  <div id="status" role="status" aria-live="polite"></div>
+  <div class="logbar" id="logbar" hidden>
+    <button class="link" id="logToggle" aria-expanded="false" aria-controls="log"><span data-i18n="log.title">Журнал</span></button>
+    <span class="chip ok" id="cOk" hidden></span><span class="chip warn" id="cWarn" hidden></span><span class="chip err" id="cErr" hidden></span>
+  </div>
+  <div id="log" hidden></div>
+</div>
+
+<footer>
+  <div class="seg" role="radiogroup" id="lang" data-i18n-title="footer.lang">
+    <button role="radio" data-v="ru" lang="ru">RU</button><button role="radio" data-v="en" lang="en">EN</button>
+  </div>
+  <span class="author">Denis Lampusov</span>
+  <button class="coffee" id="coffee" data-i18n-title="footer.donate"><svg><use href="#i-cup"/></svg></button>
+</footer>
+
+<script src="js/i18n.js"></script>
+<script src="js/convert.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
