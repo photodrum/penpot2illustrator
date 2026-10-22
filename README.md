@@ -66,6 +66,20 @@
 - Наконечники линий и внутренняя тень у сложных объектов построены приближённо.
 - Анимации и прототипы Penpot не переносятся.
 
+### TO DO
+
+Что планируется добавить в следующих версиях:
+
+- [ ] **Интерактивное (умное) сохранение Illustrator → Penpot** — правки, сделанные в Illustrator, отправляются обратно в файл Penpot: изменённые слои обновляются, новые добавляются, нетронутые не меняются.
+- [ ] **Синхронизация Penpot → Illustrator** — обновление уже собранных досок без пересборки, с сохранением ручных правок.
+- [ ] **Миниатюры досок** — превью в списке досок для быстрого выбора.
+- [ ] **Компоненты Penpot → символы Illustrator** — главные компоненты и их копии становятся символами.
+- [ ] **Библиотеки и токены** — цвета Penpot → образцы Illustrator, типографика → стили абзацев и символов.
+- [ ] **Пакетная сборка** — несколько файлов или страниц за один запуск, сборка в отдельные документы.
+- [ ] **Экспорт результата** — сохранение собранных досок сразу в AI / PDF / SVG.
+- [ ] **Версия для Photoshop** — доски Penpot как PSD со слоями и редактируемым текстом.
+- [ ] **Подписанный установщик (ZXP) и переход на UXP** — установка без `PlayerDebugMode`, поддержка будущих версий Illustrator.
+
 ### Поддержать автора
 
 Плагин бесплатный. Если он сэкономил вам время — можно [угостить автора кофе на Boosty](https://boosty.to/photodrum/donate) ☕
@@ -132,6 +146,20 @@ The panel shows which fonts are found (✓) and which are missing (!). With “D
 - Updating already built boards (sync) is not supported yet — boards are rebuilt.
 - Line-end markers and inner shadows on complex objects are approximated.
 - Penpot animations and prototypes are not transferred.
+
+### TO DO
+
+Planned for future versions:
+
+- [ ] **Interactive (smart) save Illustrator → Penpot** — edits made in Illustrator are sent back to the Penpot file: changed layers are updated, new ones added, untouched ones left as they are.
+- [ ] **Sync Penpot → Illustrator** — update already built boards without a full rebuild, keeping manual edits.
+- [ ] **Board thumbnails** — previews in the board list for quick picking.
+- [ ] **Penpot components → Illustrator symbols** — main components and their copies become symbols.
+- [ ] **Libraries and tokens** — Penpot colors → Illustrator swatches, typography → paragraph and character styles.
+- [ ] **Batch build** — several files or pages in one run, each into its own document.
+- [ ] **Export** — save the built boards straight to AI / PDF / SVG.
+- [ ] **Photoshop version** — Penpot boards as a layered PSD with editable text.
+- [ ] **Signed installer (ZXP) and UXP port** — install without `PlayerDebugMode`, support for future Illustrator versions.
 
 ### Support the author
 
