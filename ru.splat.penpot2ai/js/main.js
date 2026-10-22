@@ -62,6 +62,12 @@
   function ensureHost() {
     return host('typeof PI !== "undefined" && typeof PI.board === "function"').then(function (r) {
       if (r === 'true') return;
+      if (hasNode) {
+        var dir = decodeURI(cep.getSystemPath('extension'));
+        if (dir.indexOf('file://') === 0) dir = dir.slice(7);
+        if (dir.charAt(0) === '/' && dir.charAt(2) === ':') dir = dir.slice(1);
+        try { return host(fs.readFileSync(pathM.join(dir, 'jsx', 'host.jsx'), 'utf8')); } catch (e) {}
+      }
       var p = decodeURI(cep.getSystemPath('extension')).replace(/^file:\/\//, '');
       p = p.replace(/^\/([A-Za-z]:)/, '$1').replace(/\\/g, '/') + '/jsx/host.jsx';
       return host('$.evalFile(File("' + p + '"))');
