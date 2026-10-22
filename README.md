@@ -45,7 +45,7 @@
    - **macOS** — двойной щелчок по `install.command`. Если macOS не даёт запустить файл: щелчок правой кнопкой → «Открыть», или в Терминале `chmod +x install.command`.
 3. Перезапустите Illustrator и откройте **Окно → Расширения → Penpot → Illustrator**.
 
-Установщик копирует панель в папку расширений Adobe и разрешает загрузку неподписанных расширений (`PlayerDebugMode`). Права администратора не нужны.
+Установщик копирует панель в папку расширений Adobe и разрешает загрузку неподписанных расширений (`PlayerDebugMode`). Права администратора не нужны. Иконки панели хранятся в репозитории в виде `*.png.b64` — установщик сам превращает их в PNG.
 
 ### Первый запуск
 
@@ -126,7 +126,7 @@ Denis Lampusov · © 2026
    - **macOS** — double-click `install.command`. If macOS blocks it: right-click → Open, or run `chmod +x install.command` in Terminal.
 3. Restart Illustrator and open **Window → Extensions → Penpot → Illustrator**.
 
-The installer copies the panel to the Adobe extensions folder and allows unsigned extensions (`PlayerDebugMode`). No admin rights needed.
+The installer copies the panel to the Adobe extensions folder and allows unsigned extensions (`PlayerDebugMode`). No admin rights needed. Panel icons are stored as `*.png.b64` in the repository — the installer turns them into PNG files.
 
 ### First run
 

@@ -8,6 +8,11 @@ killall cfprefsd 2>/dev/null || true
 rm -rf "$DEST"
 mkdir -p "$(dirname "$DEST")"
 cp -R ru.splat.penpot2ai "$DEST"
+for f in "$DEST"/icons/*.b64; do
+  [ -e "$f" ] || continue
+  base64 -D -i "$f" -o "${f%.b64}" 2>/dev/null || base64 -d < "$f" > "${f%.b64}"
+  rm -f "$f"
+done
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 echo
 echo "Done. Restart Illustrator and open: Window > Extensions > Penpot → Illustrator"
