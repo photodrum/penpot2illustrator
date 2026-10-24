@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+- Миниатюры досок в панели: превью от Penpot, а если его нет (или файл открыт из JSON) — упрощённая отрисовка самой панелью. Переключатель «список / плитки»; в списке при наведении — крупное превью. / Board thumbnails in the panel: Penpot's own previews, or a simplified rendering by the panel when there is none (or the file was opened from JSON). “List / tiles” switch; hovering a row in the list shows a large preview.
+- Раскладка «как на холсте Penpot» в новом документе — до 15 000 pt (было 7500), доски центрируются на холсте Illustrator. / “As on the Penpot canvas” layout in a new document now fits up to 15,000 pt (was 7,500), centred on the Illustrator canvas.
+
 ## 0.6.3
 - Размытие фона (background blur, Penpot 2.17+): под объектом строится обтравленная группа «Размытие фона» с размытой копией того, что лежит под ним. / Background blur (Penpot 2.17+): a clipped “Background blur” group with a blurred copy of the content behind the object.
 - Большие тени и размытия больше не обрезаются: запас растровых эффектов документа поднимается под самое большое размытие. / Large shadows and blurs are no longer clipped: the document raster effect padding grows to fit the largest blur.

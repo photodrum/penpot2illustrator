@@ -22,7 +22,8 @@
       'src.browse': 'Проекты', 'src.link': 'Ссылка', 'lbl.team': 'Команда', 'ph.fileFilter': 'Найти файл', 'btn.refresh': 'Обновить список',
       'files.loading': 'Загружаю список проектов…', 'files.needToken': 'Чтобы видеть проекты, укажите токен доступа в «Подключении».',
       'files.none': 'Файлы не найдены', 'files.drafts': 'Черновики', 'files.error': 'Не удалось получить проекты: {e}',
-      'when.now': 'только что', 'when.min': '{n} мин назад', 'when.hour': '{n} ч назад', 'when.day': '{n} дн назад'
+      'when.now': 'только что', 'when.min': '{n} мин назад', 'when.hour': '{n} ч назад', 'when.day': '{n} дн назад',
+      'view.title': 'Вид списка досок', 'view.list': 'Список', 'view.grid': 'Плитки'
     },
     en: {
       'sec.source': 'Penpot file', 'sec.boards': 'Boards', 'sec.fonts': 'Fonts', 'sec.options': 'Build options',
@@ -45,7 +46,8 @@
       'src.browse': 'Projects', 'src.link': 'Link', 'lbl.team': 'Team', 'ph.fileFilter': 'Find a file', 'btn.refresh': 'Refresh list',
       'files.loading': 'Loading projects…', 'files.needToken': 'Enter an access token under “Connection” to see your projects.',
       'files.none': 'No files found', 'files.drafts': 'Drafts', 'files.error': 'Could not get projects: {e}',
-      'when.now': 'just now', 'when.min': '{n} min ago', 'when.hour': '{n} h ago', 'when.day': '{n} d ago'
+      'when.now': 'just now', 'when.min': '{n} min ago', 'when.hour': '{n} h ago', 'when.day': '{n} d ago',
+      'view.title': 'Board list view', 'view.list': 'List', 'view.grid': 'Tiles'
     }
   };
   var lang = 'ru';
