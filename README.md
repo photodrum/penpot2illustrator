@@ -20,7 +20,7 @@
 ### Возможности
 
 - **Выбор файла прямо в панели** — проекты и файлы вашей команды Penpot, поиск, время изменения; либо ссылка на файл, либо JSON.
-- **Доски → монтажные области** — раскладка как на холсте Penpot или сеткой, выбор отдельных досок.
+- **Доски → монтажные области** — раскладка как на холсте Penpot или сеткой, выбор отдельных досок; миниатюры досок списком или плитками.
 - **Фигуры и контуры** — прямоугольники с разными скруглениями, эллипсы, контуры Безье, составные контуры, логические операции, маски и обрезка досок.
 - **Тексты абзацами** — шрифт, насыщенность, кегль, интерлиньяж, трекинг, цвет, выравнивание, регистр, подчёркивание; надстрочные и подстрочные знаки; сверка переносов с Penpot.
 - **Шрифты** — автоподбор установленных шрифтов, ручная замена, автоматическая установка недостающих из Google Fonts.
@@ -73,7 +73,6 @@
 
 - [ ] **Интерактивное (умное) сохранение Illustrator → Penpot** — правки, сделанные в Illustrator, отправляются обратно в файл Penpot: изменённые слои обновляются, новые добавляются, нетронутые не меняются.
 - [ ] **Синхронизация Penpot → Illustrator** — обновление уже собранных досок без пересборки, с сохранением ручных правок.
-- [ ] **Миниатюры досок** — превью в списке досок для быстрого выбора.
 - [ ] **Компоненты Penpot → символы Illustrator** — главные компоненты и их копии становятся символами.
 - [ ] **Библиотеки и токены** — цвета Penpot → образцы Illustrator, типографика → стили абзацев и символов.
 - [ ] **Пакетная сборка** — несколько файлов или страниц за один запуск, сборка в отдельные документы.
@@ -102,7 +101,7 @@ Denis Lampusov · © 2026
 ### Features
 
 - **Pick a file right in the panel** — your Penpot team's projects and files with search and modification time; or a file link, or a JSON file.
-- **Boards → artboards** — laid out as on the Penpot canvas or in a grid; choose any subset of boards.
+- **Boards → artboards** — laid out as on the Penpot canvas or in a grid; choose any subset of boards; board thumbnails as a list or tiles.
 - **Shapes and paths** — rectangles with individual corner radii, ellipses, Bézier paths, compound paths, booleans, masks and board clipping.
 - **Text as paragraphs** — font, weight, size, leading, tracking, color, alignment, case, underline; superscript and subscript; line-break check against Penpot.
 - **Fonts** — automatic matching of installed fonts, manual override, automatic installation of missing fonts from Google Fonts.
@@ -155,7 +154,6 @@ Planned for future versions:
 
 - [ ] **Interactive (smart) save Illustrator → Penpot** — edits made in Illustrator are sent back to the Penpot file: changed layers are updated, new ones added, untouched ones left as they are.
 - [ ] **Sync Penpot → Illustrator** — update already built boards without a full rebuild, keeping manual edits.
-- [ ] **Board thumbnails** — previews in the board list for quick picking.
 - [ ] **Penpot components → Illustrator symbols** — main components and their copies become symbols.
 - [ ] **Libraries and tokens** — Penpot colors → Illustrator swatches, typography → paragraph and character styles.
 - [ ] **Batch build** — several files or pages in one run, each into its own document.

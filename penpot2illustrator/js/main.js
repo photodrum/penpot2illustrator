@@ -14,11 +14,12 @@
   var I18N = window.I18N, t = I18N.t, tr = I18N.tr;
   var LS = 'penpot2ai.settings';
 
-  var S = { file: null, fileName: '', pageId: null, boards: [], fonts: [], resolved: {}, busy: false, counts: { ok: 0, warn: 0, err: 0 } };
+  var S = { file: null, fileName: '', pageId: null, boards: [], fonts: [], resolved: {}, busy: false, counts: { ok: 0, warn: 0, err: 0 },
+    thumbs: {}, serverThumbs: null, thumbGen: 0 };
 
   var settings = { server: 'https://design.penpot.app', token: '', link: '', overrides: {}, keepHidden: true, embed: true,
     target: 'new', layout: 'penpot', guides: true, autoFonts: true, lang: null, open: {}, connOk: null,
-    srcMode: 'browse', teamId: null, fileId: null };
+    srcMode: 'browse', teamId: null, fileId: null, boardView: 'list' };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) {}
   function save() { try { localStorage.setItem(LS, JSON.stringify(settings)); } catch (e) {} }
 
@@ -128,6 +129,7 @@
     }
     if (!json.data || !json.data.pagesIndex) throw new Error(tr('В JSON нет data.pagesIndex — это не ответ get-file', 'No data.pagesIndex in JSON — this is not a get-file response'));
     S.file = json; S.fileName = name || json.name || 'Penpot';
+    S.thumbs = {}; S.serverThumbs = null;
     var pages = P2A.pages(json);
     var sel = $('page');
     sel.innerHTML = '';
@@ -272,19 +274,109 @@
     var box = $('boards'); box.innerHTML = '';
     S.boards.forEach(function (b) {
       var l = document.createElement('label');
-      l.className = 'board';
-      l.innerHTML = '<input type="checkbox" checked><span class="nm"></span><span class="sz"></span>';
+      l.className = 'board on';
+      l.innerHTML = '<input type="checkbox" checked><span class="th"></span><span class="nm"></span><span class="sz"></span>';
       l.querySelector('input').value = b.id;
       l.querySelector('.nm').textContent = b.name;
-      l.title = b.name;
+      l.title = b.name + ' · ' + Math.round(b.w) + '×' + Math.round(b.h);
       l.querySelector('.sz').textContent = Math.round(b.w) + '×' + Math.round(b.h);
-      l.querySelector('input').addEventListener('change', function () { boardsChanged(); });
+      l.querySelector('input').addEventListener('change', function () { l.classList.toggle('on', this.checked); boardsChanged(); });
+      l.addEventListener('mouseenter', function () { popShow(l, b); });
+      l.addEventListener('mouseleave', popHide);
       box.appendChild(l);
     });
     $('filterRow').hidden = S.boards.length <= 8;
     $('filter').value = '';
     boardsChanged();
+    loadThumbs();
   }
+
+  function thumbKey(id) { return S.pageId + '|' + id; }
+  function setThumb(id, url) {
+    S.thumbs[thumbKey(id)] = url;
+    var inp = document.querySelector('#boards input[value="' + id + '"]');
+    if (!inp) return;
+    var th = inp.parentNode.querySelector('.th');
+    th.innerHTML = '';
+    if (!url) { th.className = 'th none'; return; }
+    var img = document.createElement('img'); img.src = url; img.alt = '';
+    th.className = 'th'; th.appendChild(img);
+  }
+  function serverThumbMap() {
+    if (S.serverThumbs) return Promise.resolve(S.serverThumbs);
+    var fid = S.file && S.file.id;
+    if (!hasNode || !fid || !settings.token) return Promise.resolve({});
+    return api('get-file-object-thumbnails', { 'file-id': fid }).then(function (m) {
+      S.serverThumbs = m && typeof m === 'object' ? m : {};
+      return S.serverThumbs;
+    }, function () { S.serverThumbs = {}; return S.serverThumbs; });
+  }
+  function fetchServerThumb(uri) {
+    var url = /^https?:/i.test(uri) ? uri : serverUrl() + (uri.charAt(0) === '/' ? '' : '/') + uri;
+    return request(url, { headers: authHeaders(false) }).then(function (r) {
+      var mime = (r.type || 'image/png').split(';')[0];
+      if (!/^image\//.test(mime)) throw new Error('not an image');
+      return 'data:' + mime + ';base64,' + r.buf.toString('base64');
+    });
+  }
+  function loadThumbs() {
+    var gen = ++S.thumbGen, pageId = S.pageId, file = S.file, list = S.boards.slice();
+    list.forEach(function (b) { if (S.thumbs.hasOwnProperty(thumbKey(b.id))) setThumb(b.id, S.thumbs[thumbKey(b.id)]); });
+    var todo = list.filter(function (b) { return !S.thumbs.hasOwnProperty(thumbKey(b.id)); });
+    if (!todo.length) return;
+    serverThumbMap().then(function (map) {
+      var chain = Promise.resolve();
+      todo.forEach(function (b) {
+        chain = chain.then(function () {
+          if (gen !== S.thumbGen) return;
+          var key = file.id + '/' + pageId + '/' + b.id + '/frame';
+          var uri = map[key];
+          var local = function () {
+            return new Promise(function (res) {
+              setTimeout(function () {
+                if (gen !== S.thumbGen) { res(); return; }
+                var url = null;
+                try { url = P2A.svgDataUrl(P2A.previewSvg(file, pageId, b.id)); } catch (e) {}
+                setThumb(b.id, url); res();
+              }, 0);
+            });
+          };
+          if (!uri) return local();
+          return fetchServerThumb(uri).then(function (url) { if (gen === S.thumbGen) setThumb(b.id, url); }, local);
+        });
+      });
+    });
+  }
+
+  function setBoardView(v) {
+    settings.boardView = v === 'grid' ? 'grid' : 'list'; save();
+    $('boards').className = settings.boardView === 'grid' ? 'grid' : '';
+    $('boards').parentNode.classList.toggle('tiles', settings.boardView === 'grid');
+    Array.prototype.forEach.call(document.querySelectorAll('#boardView button'), function (b) {
+      b.setAttribute('aria-checked', b.getAttribute('data-v') === settings.boardView ? 'true' : 'false');
+    });
+    popHide();
+  }
+
+  var popTimer = null;
+  function popShow(row, b) {
+    clearTimeout(popTimer);
+    if (settings.boardView === 'grid') return;
+    popTimer = setTimeout(function () {
+      var url = S.thumbs[thumbKey(b.id)];
+      if (!url) return;
+      var pop = $('thumbPop');
+      pop.querySelector('img').src = url;
+      pop.querySelector('.cap').textContent = b.name + ' · ' + Math.round(b.w) + '×' + Math.round(b.h);
+      pop.hidden = false;
+      var r = row.getBoundingClientRect(), ph = pop.offsetHeight, pw = pop.offsetWidth;
+      var top = r.bottom + 4;
+      if (top + ph > window.innerHeight - 4) top = Math.max(4, r.top - ph - 4);
+      pop.style.top = top + 'px';
+      pop.style.left = Math.max(4, Math.min(window.innerWidth - pw - 4, r.left + 60)) + 'px';
+    }, 350);
+  }
+  function popHide() { clearTimeout(popTimer); var p = $('thumbPop'); if (p) p.hidden = true; }
   function boardInputs() { return Array.prototype.slice.call(document.querySelectorAll('#boards input')); }
   function selectedBoards() { return boardInputs().filter(function (i) { return i.checked; }).map(function (i) { return i.value; }); }
   function boardsChanged() {
@@ -553,15 +645,15 @@
     (node.children || []).forEach(function (c) { attachMedia(c, map); });
   }
 
-  function placements(ids) {
+  function placements(ids, limit) {
     var sel = S.boards.filter(function (b) { return ids.indexOf(b.id) >= 0; });
     var minX = Math.min.apply(null, sel.map(function (b) { return b.x; }));
     var minY = Math.min.apply(null, sel.map(function (b) { return b.y; }));
     var maxX = Math.max.apply(null, sel.map(function (b) { return b.x + b.w; }));
     var maxY = Math.max.apply(null, sel.map(function (b) { return b.y + b.h; }));
-    if (maxX - minX > 7500 || maxY - minY > 7500) return null;
-    var out = {};
-    sel.forEach(function (b) { out[b.id] = { x: b.x - minX, y: b.y - minY }; });
+    if (maxX - minX > limit || maxY - minY > limit) return null;
+    var out = { pos: {}, w: maxX - minX, h: maxY - minY };
+    sel.forEach(function (b) { out.pos[b.id] = { x: b.x - minX, y: b.y - minY }; });
     return out;
   }
 
@@ -577,9 +669,11 @@
     clearLog(); setLogOpen(false);
     var first = S.boards.filter(function (b) { return b.id === ids[0]; })[0];
     var t0 = Date.now(), done = 0, warnTotal = 0;
-    var place = settings.layout === 'penpot' ? placements(ids) : null;
+    var place = settings.layout === 'penpot' ? placements(ids, settings.target === 'new' ? 15000 : 7500) : null;
     if (settings.layout === 'penpot' && !place)
-      log(tr('Доски разнесены слишком широко для холста Illustrator — раскладываю сеткой', 'Boards are spread too wide for the Illustrator canvas — arranging in a grid'), 'warn');
+      log(settings.target === 'new'
+        ? tr('Доски разнесены шире 15 000 pt — это больше холста Illustrator, раскладываю сеткой', 'Boards span more than 15,000 pt — larger than the Illustrator canvas, arranging in a grid')
+        : tr('Доски разнесены шире 7500 pt — в текущем документе раскладываю сеткой (в новом документе поместится до 15 000 pt)', 'Boards span more than 7,500 pt — arranging in a grid in the current document (a new document fits up to 15,000 pt)'), 'warn');
     status(tr('Подготовка документа…', 'Preparing the document…'));
     $('build').textContent = t('btn.building', { i: 0, n: ids.length });
     progress(0.02, 1);
@@ -590,6 +684,7 @@
     }).then(function () {
       return host('PI.embedImages=' + (settings.embed ? 'true' : 'false') + ';PI.begin(' + lit({
         newDoc: settings.target === 'new', w: first.w, h: first.h, layout: place ? 'penpot' : 'grid', rasterPpi: 300,
+        extent: place ? { w: place.w, h: place.h } : null,
         layerName: 'Penpot · ' + S.fileName, overrides: settings.overrides
       }) + ')');
     }).then(function (r) {
@@ -609,7 +704,7 @@
           return Promise.all(dl).then(function () {
             attachMedia(conv.tree, map);
             conv.warnings.forEach(function (w) { log(conv.board.name + ': ' + w, 'warn'); warnTotal++; });
-            return host('PI.board(' + lit({ board: conv.board, tree: conv.tree, place: place ? place[id] : null, guides: settings.guides }) + ')');
+            return host('PI.board(' + lit({ board: conv.board, tree: conv.tree, place: place ? place.pos[id] : null, guides: settings.guides }) + ')');
           }).then(function (res) {
             if (res.indexOf('OK:') === 0) log('✓ ' + res.slice(3), 'ok');
             else log('✕ ' + conv.board.name + ': ' + res.replace(/^ERR:/, ''), 'err');
@@ -754,9 +849,16 @@
     });
 
     $('page').addEventListener('change', loadBoards);
+    Array.prototype.forEach.call(document.querySelectorAll('#boardView button'), function (b) {
+      b.addEventListener('click', function () { setBoardView(b.getAttribute('data-v')); });
+    });
+    segKeys($('boardView'), setBoardView);
+    setBoardView(settings.boardView);
+    $('scroll').addEventListener('scroll', popHide);
+    $('boards').parentNode.addEventListener('scroll', popHide);
     $('all').addEventListener('change', function () {
       var on = this.checked;
-      boardInputs().forEach(function (b) { if (!b.closest('.board').hidden) b.checked = on; });
+      boardInputs().forEach(function (b) { if (!b.closest('.board').hidden) { b.checked = on; b.closest('.board').classList.toggle('on', on); } });
       boardsChanged();
     });
     $('filter').addEventListener('input', function () {

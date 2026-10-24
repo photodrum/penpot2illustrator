@@ -48,6 +48,10 @@ var PI = PI || {};
         try { PI.ppi = doc.rasterEffectSettings.resolution || PI.ppi; } catch (e) {}
         PI.state.layout = o.layout || 'grid';
         PI.state.baseX = PI.state.x0; PI.state.baseY = PI.state.y;
+        if (PI.state.layout === 'penpot' && o.extent && PI.state.reuseFirst) {
+            PI.state.baseX = (r0[0] + r0[2]) / 2 - o.extent.w / 2;
+            PI.state.baseY = (r0[1] + r0[3]) / 2 + o.extent.h / 2;
+        }
         PI.effectsWarned = false; PI.blurCapWarned = false;
         var lay;
         try { lay = doc.layers.getByName(o.layerName); } catch (e) { lay = null; }
