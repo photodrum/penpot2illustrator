@@ -25,7 +25,7 @@
 - **Тексты абзацами** — шрифт, насыщенность, кегль, интерлиньяж, трекинг, цвет, выравнивание, регистр, подчёркивание; надстрочные и подстрочные знаки; сверка переносов с Penpot.
 - **Шрифты** — автоподбор установленных шрифтов, ручная замена, автоматическая установка недостающих из Google Fonts.
 - **Заливки и обводки** — сплошные и градиентные, несколько обводок, внутренняя/внешняя/центральная, пунктир, наконечники линий.
-- **Эффекты** — наружные и внутренние тени, размытие слоя, режимы наложения, прозрачность.
+- **Эффекты** — наружные и внутренние тени, размытие слоя, размытие фона («стекло»), режимы наложения, прозрачность.
 - **Трансформации** — поворот, отражение, наклон.
 - **Картинки** — встраиваются или связываются; WebP и SVG конвертируются автоматически.
 - **Прочее** — скрытые слои переносятся скрытыми, модульные сетки становятся направляющими, порядок слоёв в досках с авторасстановкой как в Penpot.
@@ -64,6 +64,7 @@
 
 - Обновление уже собранных досок (синхронизация) пока не поддерживается — доски собираются заново.
 - Наконечники линий и внутренняя тень у сложных объектов построены приближённо.
+- Размытие фона — статичная копия: если после сборки изменить то, что лежит под «стеклом», размытие не обновится. Размытия сильнее примерно 104 (предел Gaussian Blur в Illustrator) получаются слабее, чем в Penpot.
 - Анимации и прототипы Penpot не переносятся.
 
 ### TO DO
@@ -106,7 +107,7 @@ Denis Lampusov · © 2026
 - **Text as paragraphs** — font, weight, size, leading, tracking, color, alignment, case, underline; superscript and subscript; line-break check against Penpot.
 - **Fonts** — automatic matching of installed fonts, manual override, automatic installation of missing fonts from Google Fonts.
 - **Fills and strokes** — solid and gradient, multiple strokes, inner/outer/center alignment, dashes, line-end markers.
-- **Effects** — drop and inner shadows, layer blur, blend modes, opacity.
+- **Effects** — drop and inner shadows, layer blur, background blur (“glass”), blend modes, opacity.
 - **Transforms** — rotation, flip, skew.
 - **Images** — embedded or linked; WebP and SVG are converted automatically.
 - **Also** — hidden layers stay hidden, layout grids become guides, z-order in auto-layout boards matches Penpot.
@@ -145,6 +146,7 @@ The panel shows which fonts are found (✓) and which are missing (!). With “D
 
 - Updating already built boards (sync) is not supported yet — boards are rebuilt.
 - Line-end markers and inner shadows on complex objects are approximated.
+- Background blur is a static copy: if you change what lies under the “glass” after the build, the blur is not updated. Blurs stronger than about 104 (the Illustrator Gaussian Blur limit) look weaker than in Penpot.
 - Penpot animations and prototypes are not transferred.
 
 ### TO DO
