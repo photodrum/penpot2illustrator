@@ -366,6 +366,15 @@
     });
   }
 
+  function isBgType(b) { return b && String(b.type || '').replace(/^:/, '') === 'background-blur'; }
+  function blurValue(b) { return b && !b.hidden && num(b.value, 0) > 0 ? num(b.value, 0) : 0; }
+  function layerBlurOf(s) { return isBgType(s.blur) ? 0 : blurValue(s.blur); }
+  function backgroundBlurOf(s) {
+    var b = s.backgroundBlur || s['background-blur'];
+    if (!b && isBgType(s.blur)) b = s.blur;
+    return blurValue(b);
+  }
+
   function svgMarkup(c) {
     if (c == null) return '';
     if (typeof c === 'string') return c.replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -503,7 +512,9 @@
       if (s.hidden) n.hidden = true;
       var sh = convShadows(s);
       if (sh.length) n.shadows = sh;
-      if (s.blur && !s.blur.hidden && num(s.blur.value, 0) > 0) n.blur = num(s.blur.value, 0);
+      var lb = layerBlurOf(s), bb = backgroundBlurOf(s);
+      if (lb) n.blur = lb;
+      if (bb) n.bgBlur = bb;
       if (allowMatrix && !isIdentity(s.transform)) {
         copy(n, decompose(s.transform, s));
         n.cx = s.x - bx + s.width / 2; n.cy = s.y - by + s.height / 2;

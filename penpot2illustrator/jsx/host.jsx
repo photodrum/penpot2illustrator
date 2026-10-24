@@ -48,7 +48,7 @@ var PI = PI || {};
         try { PI.ppi = doc.rasterEffectSettings.resolution || PI.ppi; } catch (e) {}
         PI.state.layout = o.layout || 'grid';
         PI.state.baseX = PI.state.x0; PI.state.baseY = PI.state.y;
-        PI.effectsWarned = false;
+        PI.effectsWarned = false; PI.blurCapWarned = false;
         var lay;
         try { lay = doc.layers.getByName(o.layerName); } catch (e) { lay = null; }
         if (!lay) { lay = doc.layers.add(); lay.name = o.layerName || 'Penpot'; }
@@ -76,6 +76,7 @@ var PI = PI || {};
         try { ab.name = b.name; } catch (e) {}
         st.x += b.w + st.gap; st.col++; if (b.h > st.rowH) st.rowH = b.h;
 
+        ensurePadding(doc, o.tree);
         var ctx = { ox: ox, oy: oy, doc: doc, name: b.name };
         var t0 = new Date().getTime();
         var item = build(st.layer, o.tree, ctx);
@@ -83,6 +84,22 @@ var PI = PI || {};
         if (b.guides && o.guides !== false) makeGuides(doc, b, ox, oy);
         return 'OK:' + b.name + ' — ' + ((new Date().getTime() - t0) / 1000).toFixed(1) + T(' c', ' s');
     });
+
+    function maxEffect(n) {
+        var m = 0, i;
+        if (n.blur) m = Math.max(m, n.blur);
+        if (n.bgBlur) m = Math.max(m, n.bgBlur);
+        if (n.shadows) for (i = 0; i < n.shadows.length; i++) m = Math.max(m, n.shadows[i].blur + 2 * Math.abs(n.shadows[i].spread || 0) / 1.6);
+        if (n.children) for (i = 0; i < n.children.length; i++) m = Math.max(m, maxEffect(n.children[i]));
+        return m;
+    }
+    function ensurePadding(doc, tree) {
+        var need = Math.ceil(maxEffect(tree) * 1.6) + 4;
+        try {
+            var res = doc.rasterEffectSettings;
+            if (res.padding < need) res.padding = need;
+        } catch (e) { L(T('Не удалось увеличить запас растровых эффектов: ', 'Could not enlarge raster effect padding: ') + e.message); }
+    }
 
     function X(c, x) { return c.ox + x; }
     function Y(c, y) { return c.oy - y; }
@@ -105,6 +122,10 @@ var PI = PI || {};
         if (!it) return null;
         try { it.name = n.name; } catch (e) {}
         if (n.rot || n.flip || n.matrix) placeTransform(it, n, c);
+        if (n.bgBlur) {
+            try { backdropBlur(parent, it, n, c); }
+            catch (e) { L('«' + n.name + '»: ' + T('размытие фона не построено — ', 'background blur not built — ') + e.message); }
+        }
         if ((n.kind === 'image' || n.kind === 'svg') && n.opacity != null && n.opacity < 1) {
             try { it.opacity = n.opacity * 100; } catch (e) {}
         }
@@ -141,6 +162,10 @@ var PI = PI || {};
     function blurXML(sigmaPt) {
         var ppi = PI.ppi || 300;
         var r = Math.max(0.1, sigmaPt * ppi / 72 * 1.15);
+        if (r > 250) {
+            if (!PI.blurCapWarned) { L(T('Размытие сильнее предела Illustrator (250 px при ', 'Blur exceeds the Illustrator limit (250 px at ') + ppi + T(' ppi) — будет слабее, чем в Penpot', ' ppi) — it will look weaker than in Penpot')); PI.blurCapWarned = true; }
+            r = 250;
+        }
         return '<LiveEffect name="Adobe PSL Gaussian Blur"><Dict data="R blur ' + r + ' "/></LiveEffect>';
     }
 
@@ -247,8 +272,104 @@ var PI = PI || {};
         if (sh.spread) effect(cp, offsetXML(sh.spread), n.name);
         if (sh.blur > 0) effect(cp, blurXML(sh.blur / 2), n.name);
         var clip = src.duplicate(g, ElementPlacement.PLACEATBEGINNING);
-        g.clipped = true;
+        clipGroup(g, clip, c.doc);
         try { g.opacity = sh.opacity * 100; } catch (e) {}
+    }
+
+    var BD_MARK = '__p2a_backdrop__', BD_NOTE = 'p2a:backdrop';
+    function boxHit(b, r) { return !(b[2] < r[0] || b[0] > r[2] || b[1] < r[3] || b[3] > r[1]); }
+    function isClipPath(p) {
+        try {
+            if (p.typename === 'PathItem') return p.clipping;
+            if (p.typename === 'CompoundPathItem') return p.pathItems.length > 0 && p.pathItems[0].clipping;
+        } catch (e) {}
+        return false;
+    }
+    function itemBounds(it) {
+        if (it.typename === 'GroupItem' && it.clipped) {
+            for (var i = 0; i < it.pageItems.length; i++) {
+                var p = it.pageItems[i];
+                if (isClipPath(p)) return p.geometricBounds;
+                if (p.typename === 'GroupItem' && p.clipped) return itemBounds(p);
+            }
+        }
+        return it.visibleBounds;
+    }
+    function isBackdrop(it) {
+        try { if (it.name === BD_MARK || it.note === BD_NOTE) return true; } catch (e) {}
+        return false;
+    }
+    function copyBelow(src, dst, region, depth, st) {
+        var items = [], i;
+        for (i = 0; i < src.pageItems.length; i++) items.push(src.pageItems[i]);
+        for (i = items.length - 1; i >= 0; i--) {
+            var it = items[i], skip = false;
+            try { skip = it.hidden || it.guides || isBackdrop(it); } catch (e) {}
+            if (skip) continue;
+            if (it.typename === 'GroupItem' && !it.clipped && depth < 30) {
+                var plain = true;
+                try { plain = it.opacity >= 99.9 && it.blendingMode === BlendModes.NORMAL; } catch (e) {}
+                if (plain) { copyBelow(it, dst, region, depth + 1, st); continue; }
+                var g = dst.groupItems.add();
+                try { g.opacity = it.opacity; g.blendingMode = it.blendingMode; } catch (e) {}
+                copyBelow(it, g, region, depth + 1, st);
+                if (g.pageItems.length === 0) g.remove();
+                continue;
+            }
+            var vb;
+            try { vb = itemBounds(it); } catch (e) { continue; }
+            if (!boxHit(vb, region)) continue;
+            try { it.duplicate(dst, ElementPlacement.PLACEATBEGINNING); st.copied++; }
+            catch (e) { st.failed.push('«' + it.name + '» (' + it.typename + '): ' + e.message); }
+        }
+    }
+    function clipGroup(g, clip, doc) {
+        if (clip.typename === 'PathItem') { g.clipped = true; return; }
+        doc.selection = null;
+        for (var i = 0; i < g.pageItems.length; i++) g.pageItems[i].selected = true;
+        app.executeMenuCommand('makeMask');
+        doc.selection = null;
+    }
+    function backdropBlur(parent, it, n, c) {
+        var root = c.root || parent;
+        var sigma = n.bgBlur / 2;
+        var pad = sigma * 3 + 2;
+        var b = it.visibleBounds;
+        var region = [b[0] - pad, b[1] + pad, b[2] + pad, b[3] - pad];
+        var wasHidden = it.hidden, g = null, ok = false, step = T('подготовка', 'setup');
+        var st = { copied: 0, failed: [] };
+        try {
+            it.hidden = true;
+            g = parent.groupItems.add();
+            g.name = BD_MARK;
+            try { g.note = BD_NOTE; } catch (e) {}
+            var inner = g.groupItems.add();
+            inner.name = BD_MARK;
+            step = T('копирование фона', 'copying content');
+            copyBelow(root, inner, region, 0, st);
+            if (st.failed.length) L('«' + n.name + '»: ' + T('в размытие фона не попали: ', 'left out of background blur: ') + st.failed.join('; '));
+            it.hidden = wasHidden;
+            step = T('порядок слоёв', 'stacking');
+            it.move(parent, ElementPlacement.PLACEATBEGINNING);
+            if (inner.pageItems.length === 0) { g.remove(); g = null; return null; }
+            inner.name = T('Фон под объектом', 'Content behind');
+            step = T('размытие', 'blur');
+            effect(inner, blurXML(sigma), n.name);
+            step = T('маска', 'mask');
+            var src = shapeSource(it), clip;
+            if (src) clip = src.duplicate(g, ElementPlacement.PLACEATBEGINNING);
+            else clip = g.pathItems.rectangle(b[1], b[0], b[2] - b[0], b[1] - b[3]);
+            clipGroup(g, clip, c.doc);
+            g.name = T('Размытие фона', 'Background blur');
+            if (n.hidden) { try { g.hidden = true; } catch (e) {} }
+            ok = true;
+            return g;
+        } catch (e) {
+            throw new Error(e.message + T(' [шаг: ', ' [step: ') + step + ']');
+        } finally {
+            try { it.hidden = wasHidden; } catch (e) {}
+            if (!ok && g) { try { g.remove(); } catch (e) {} }
+        }
     }
 
     function makeGuides(doc, b, ox, oy) {
@@ -285,12 +406,13 @@ var PI = PI || {};
 
     function buildGroup(parent, n, c) {
         var g = parent.groupItems.add();
+        if (!c.root) c.root = g;
         var kids = n.children || [];
         for (var i = 0; i < kids.length; i++) build(g, kids[i], c);
         if (n.mask && g.pageItems.length > 1) {
             var m = g.pageItems[g.pageItems.length - 1];
             m.move(g, ElementPlacement.PLACEATBEGINNING);
-            if (m.typename === 'PathItem' || m.typename === 'CompoundPathItem') g.clipped = true;
+            if (m.typename === 'PathItem' || m.typename === 'CompoundPathItem') clipGroup(g, m, c.doc);
             else L('«' + n.name + '»: ' + T('маска сложной формы не перенесена', 'complex mask was not transferred'));
         }
         if (n.clip) {
@@ -473,7 +595,7 @@ var PI = PI || {};
         if (cl.kind === 'ellipse') cp = g.pathItems.ellipse(Y(c, n.y), X(c, n.x), n.w, n.h);
         else if (cl.kind === 'path' && cl.subs) cp = geomItem(g, { kind: 'path', subs: cl.subs }, c, 0);
         else cp = rrectPath(g, n.x, n.y, n.w, n.h, cl.radii, c);
-        g.clipped = true;
+        clipGroup(g, cp, c.doc);
         if (n.opacity != null && n.opacity < 1) g.opacity = n.opacity * 100;
         return g;
     }
