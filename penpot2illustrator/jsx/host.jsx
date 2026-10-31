@@ -25,7 +25,8 @@ var PI = PI || {};
     PI.begin = wrap(function (s) {
         var o = parse(s);
         PI.overrides = o.overrides || {};
-        PI.fontCache = {}; PI.metricCache = {}; PI.log = [];
+        PI.fontCache = {}; PI.metricCache = {}; PI.log = []; PI.fontLogged = {};
+        PI.swatches = {}; PI.libGrads = {}; PI.typos = {};
         var doc;
         app.coordinateSystem = CoordinateSystem.DOCUMENTCOORDINATESYSTEM;
         if (o.newDoc || app.documents.length === 0) {
@@ -46,19 +47,67 @@ var PI = PI || {};
         PI.ppi = o.rasterPpi || 300;
         try { doc.rasterEffectSettings.resolution = PI.ppi; } catch (e) {}
         try { PI.ppi = doc.rasterEffectSettings.resolution || PI.ppi; } catch (e) {}
-        PI.state.layout = o.layout || 'grid';
+        PI.state.layout = 'grid';
         PI.state.baseX = PI.state.x0; PI.state.baseY = PI.state.y;
-        if (PI.state.layout === 'penpot' && o.extent && PI.state.reuseFirst) {
-            PI.state.baseX = (r0[0] + r0[2]) / 2 - o.extent.w / 2;
-            PI.state.baseY = (r0[1] + r0[3]) / 2 + o.extent.h / 2;
-        }
+        var cv = probeCanvas(doc), M = 50;
+        PI.state.canvas = cv;
+        var availW, availH;
+        if (PI.state.reuseFirst) { availW = cv[2] - cv[0] - 2 * M; availH = cv[1] - cv[3] - 2 * M; }
+        else { availW = cv[2] - M - PI.state.x0; availH = cv[1] - cv[3] - 2 * M; }
         PI.effectsWarned = false; PI.blurCapWarned = false;
         var lay;
         try { lay = doc.layers.getByName(o.layerName); } catch (e) { lay = null; }
         if (!lay) { lay = doc.layers.add(); lay.name = o.layerName || 'Penpot'; }
         lay.locked = false; lay.visible = true;
         PI.state.layer = lay;
-        return 'OK:' + doc.name;
+        return 'OK:' + Math.max(0, Math.floor(availW)) + '|' + Math.max(0, Math.floor(availH)) + '|' + doc.name;
+    });
+
+    // Границы холста ищутся пробой: временная монтажная область 2×2 pt ставится и сразу удаляется.
+    // Первая монтажная область нового документа не обязательно стоит в центре холста.
+    function probeCanvas(doc) {
+        var abs = doc.artboards, r0 = abs[0].artboardRect;
+        var cx = (r0[0] + r0[2]) / 2, cy = (r0[1] + r0[3]) / 2, active = 0;
+        try { active = abs.getActiveArtboardIndex(); } catch (e) {}
+        function ok(x, y) {
+            try { abs.add([x - 1, y + 1, x + 1, y - 1]); } catch (e) { return false; }
+            try { abs.remove(abs.length - 1); } catch (e2) {}
+            return true;
+        }
+        function edge(dx, dy) {
+            var lo = 0, hi = 60000;
+            if (ok(cx + dx * hi, cy + dy * hi)) return hi;
+            for (var i = 0; i < 18; i++) {
+                var mid = (lo + hi) / 2;
+                if (ok(cx + dx * mid, cy + dy * mid)) lo = mid; else hi = mid;
+            }
+            return lo;
+        }
+        var cv;
+        try {
+            cv = [cx - edge(-1, 0) - 1, cy + edge(0, 1) + 1, cx + edge(1, 0) + 1, cy - edge(0, -1) - 1];
+        } catch (e) { cv = null; }
+        try { abs.setActiveArtboardIndex(active); } catch (e) {}
+        if (!cv || cv[2] - cv[0] < 100 || cv[1] - cv[3] < 100) cv = [cx - 8000, cy + 8000, cx + 8000, cy - 8000];
+        return cv;
+    }
+
+    // Раскладка: o.extent — размер всей раскладки; новый документ — по центру холста, текущий — справа от досок.
+    PI.layout = wrap(function (s) {
+        var o = parse(s), st = PI.state;
+        if (!st) return 'ERR:' + T('Сначала вызовите PI.begin', 'Call PI.begin first');
+        var cv = st.canvas, M = 50, w = o.extent.w, h = o.extent.h;
+        st.layout = 'penpot';
+        if (st.reuseFirst) {
+            st.baseX = (cv[0] + cv[2]) / 2 - w / 2;
+            st.baseY = (cv[1] + cv[3]) / 2 + h / 2;
+        } else {
+            st.baseX = st.x0;
+            st.baseY = st.y;
+            if (st.baseY > cv[1] - M) st.baseY = cv[1] - M;
+            if (st.baseY - h < cv[3] + M) st.baseY = cv[3] + M + h;
+        }
+        return 'OK';
     });
 
     PI.board = wrap(function (s) {
@@ -75,16 +124,24 @@ var PI = PI || {};
         }
         var rect = [ox, oy, ox + b.w, oy - b.h];
         var ab;
-        if (st.reuseFirst) { ab = doc.artboards[0]; ab.artboardRect = rect; st.reuseFirst = false; }
-        else ab = doc.artboards.add(rect);
-        try { ab.name = b.name; } catch (e) {}
         st.x += b.w + st.gap; st.col++; if (b.h > st.rowH) st.rowH = b.h;
+        try {
+            if (st.reuseFirst) { ab = doc.artboards[0]; ab.artboardRect = rect; st.reuseFirst = false; }
+            else ab = doc.artboards.add(rect);
+        } catch (eAb) {
+            return 'ERR:' + T('монтажная область не помещается на холсте Illustrator — соберите доски частями или в новый документ',
+                'the artboard does not fit on the Illustrator canvas — build the boards in parts or into a new document') + ' [' + eAb.message + ']';
+        }
+        try { ab.name = b.name; } catch (e) {}
 
         ensurePadding(doc, o.tree);
-        var ctx = { ox: ox, oy: oy, doc: doc, name: b.name };
+        var ctx = { ox: ox, oy: oy, doc: doc, name: b.name, ref: o.ref || null, tagged: 0 };
         var t0 = new Date().getTime();
         var item = build(st.layer, o.tree, ctx);
-        if (item) try { item.name = b.name; } catch (e) {}
+        if (item) {
+            try { item.name = b.name; } catch (e) {}
+            if (ctx.ref) setNote(item, idNote(b.id, ctx.ref, true));
+        }
         if (b.guides && o.guides !== false) makeGuides(doc, b, ox, oy);
         return 'OK:' + b.name + ' — ' + ((new Date().getTime() - t0) / 1000).toFixed(1) + T(' c', ' s');
     });
@@ -150,8 +207,33 @@ var PI = PI || {};
         if (n.blur) effect(top, blurXML(n.blur / 2), n.name);
         if (n.blend) setBlend(top, n.blend);
         if (n.hidden) { try { top.hidden = true; } catch (e) {} }
+        if (n.id && c.ref) { setNote(top, idNote(n.id, c.ref, false)); c.tagged++; }
         return top;
     }
+
+    // ---- Привязка к Penpot: примечание объекта «p2a:id=…;file=…;page=…» ----
+    var ID_PREFIX = 'p2a:id=';
+    function idNote(id, ref, board) {
+        var s = ID_PREFIX + id + ';file=' + (ref.file || '') + ';page=' + (ref.page || '');
+        if (board) s += ';board=1' + (ref.revn != null ? ';revn=' + ref.revn : '');
+        return s;
+    }
+    function setNote(it, s) { try { it.note = s; } catch (e) {} }
+    function clearIds(it, depth) {
+        depth = depth || 0;
+        try { if (String(it.note).indexOf(ID_PREFIX) === 0) it.note = ''; } catch (e) {}
+        if (depth > 40) return;
+        try {
+            if (it.typename === 'GroupItem') for (var i = 0; i < it.pageItems.length; i++) clearIds(it.pageItems[i], depth + 1);
+        } catch (e2) {}
+    }
+    PI.parseNote = function (s) {
+        s = String(s || '');
+        if (s.indexOf(ID_PREFIX) !== 0) return null;
+        var out = {}, parts = s.slice(4).split(';');
+        for (var i = 0; i < parts.length; i++) { var kv = parts[i].split('='); if (kv[0]) out[kv[0]] = kv.slice(1).join('='); }
+        return out;
+    };
 
     function applyMatrix(it, M, cx, cy, c) {
         var a = M.a, b = -M.b, cc = -M.c, d = M.d;
@@ -236,6 +318,7 @@ var PI = PI || {};
 
     function dropShadow(wrapG, it, sh, n, c) {
         var d = it.duplicate(wrapG, ElementPlacement.PLACEATEND);
+        clearIds(d);
         recolor(d, sh.color);
         try { d.opacity = sh.opacity * 100; } catch (e) {}
         d.translate(sh.dx, -sh.dy);
@@ -268,7 +351,7 @@ var PI = PI || {};
         var holes = [];
         if (src.typename === 'CompoundPathItem') { for (var i = 0; i < src.pathItems.length; i++) holes.push(src.pathItems[i].duplicate(cp, ElementPlacement.PLACEATEND)); }
         else holes.push(src.duplicate(cp, ElementPlacement.PLACEATEND));
-        for (var j = 0; j < holes.length; j++) holes[j].translate(sh.dx, -sh.dy);
+        for (var j = 0; j < holes.length; j++) { clearIds(holes[j]); holes[j].translate(sh.dx, -sh.dy); }
         for (var k = 0; k < cp.pathItems.length; k++) {
             var p = cp.pathItems[k];
             p.filled = true; p.fillColor = rgb(sh.color); p.stroked = false; p.evenodd = true;
@@ -276,6 +359,7 @@ var PI = PI || {};
         if (sh.spread) effect(cp, offsetXML(sh.spread), n.name);
         if (sh.blur > 0) effect(cp, blurXML(sh.blur / 2), n.name);
         var clip = src.duplicate(g, ElementPlacement.PLACEATBEGINNING);
+        clearIds(clip);
         clipGroup(g, clip, c.doc);
         try { g.opacity = sh.opacity * 100; } catch (e) {}
     }
@@ -351,6 +435,7 @@ var PI = PI || {};
             inner.name = BD_MARK;
             step = T('копирование фона', 'copying content');
             copyBelow(root, inner, region, 0, st);
+            clearIds(inner);
             if (st.failed.length) L('«' + n.name + '»: ' + T('в размытие фона не попали: ', 'left out of background blur: ') + st.failed.join('; '));
             it.hidden = wasHidden;
             step = T('порядок слоёв', 'stacking');
@@ -361,7 +446,7 @@ var PI = PI || {};
             effect(inner, blurXML(sigma), n.name);
             step = T('маска', 'mask');
             var src = shapeSource(it), clip;
-            if (src) clip = src.duplicate(g, ElementPlacement.PLACEATBEGINNING);
+            if (src) { clip = src.duplicate(g, ElementPlacement.PLACEATBEGINNING); clearIds(clip); }
             else clip = g.pathItems.rectangle(b[1], b[0], b[2] - b[0], b[1] - b[3]);
             clipGroup(g, clip, c.doc);
             g.name = T('Размытие фона', 'Background blur');
@@ -538,17 +623,30 @@ var PI = PI || {};
         return gc;
     }
 
+    function spotOf(ref) {
+        var sc = new SpotColor();
+        sc.spot = PI.swatches[ref]; sc.tint = 100;
+        return sc;
+    }
+    function paintColor(fill, n, c) {
+        if (fill.ref && fill.type === 'solid' && PI.swatches[fill.ref]) return spotOf(fill.ref);
+        if (fill.ref && fill.type !== 'solid' && PI.libGrads[fill.ref]) {
+            var gc = new GradientColor(); gc.gradient = PI.libGrads[fill.ref]; return gc;
+        }
+        return fill.type === 'solid' ? rgb(fill.color) : gradientColor(fill, n, c);
+    }
+
     function paint(it, fill, st, n, c) {
         var op = n.opacity == null ? 1 : n.opacity;
         eachPath(it, function (p) {
             if (fill) {
                 p.filled = true;
-                if (fill.type === 'solid') p.fillColor = rgb(fill.color);
-                else p.fillColor = gradientColor(fill, n, c);
+                p.fillColor = paintColor(fill, n, c);
             } else p.filled = false;
             if (st) {
                 p.stroked = true;
-                p.strokeColor = (st.paint && st.paint.type !== 'solid') ? gradientColor(st.paint, n, c) : rgb(st.color);
+                p.strokeColor = st.ref && PI.swatches[st.ref] ? spotOf(st.ref) :
+                    ((st.paint && st.paint.type !== 'solid') ? gradientColor(st.paint, n, c) : rgb(st.color));
                 p.strokeWidth = st.width;
                 p.strokeCap = st.cap === 'round' ? StrokeCap.ROUNDENDCAP : (st.cap === 'square' ? StrokeCap.PROJECTINGENDCAP : StrokeCap.BUTTENDCAP);
                 p.strokeJoin = st.join === 'round' ? StrokeJoin.ROUNDENDJOIN : (st.join === 'bevel' ? StrokeJoin.BEVELENDJOIN : StrokeJoin.MITERENDJOIN);
@@ -629,9 +727,13 @@ var PI = PI || {};
         PI.allFonts = out;
         return out;
     }
-    PI.findFont = function (spec) {
+    PI.findFont = function (spec, quiet) {
         var key = spec.family + '|' + spec.weight + '|' + (spec.italic ? 'i' : 'n');
-        if (PI.fontCache.hasOwnProperty(key)) return PI.fontCache[key];
+        if (!PI.fontLogged) PI.fontLogged = {};
+        if (PI.fontCache.hasOwnProperty(key)) {
+            if (!PI.fontCache[key] && !quiet && !PI.fontLogged[key]) { PI.fontLogged[key] = true; L(T('Шрифт не найден: ', 'Font not found: ') + spec.family + ' ' + spec.weight + (spec.italic ? ' italic' : '')); }
+            return PI.fontCache[key];
+        }
         var res = null;
         var ov = PI.overrides[key] || PI.overrides[spec.family + '|' + spec.weight];
         if (ov) { try { res = app.textFonts.getByName(ov); } catch (e) { res = null; } }
@@ -655,7 +757,7 @@ var PI = PI || {};
             res = best;
         }
         PI.fontCache[key] = res;
-        if (!res) L(T('Шрифт не найден: ', 'Font not found: ') + spec.family + ' ' + spec.weight + (spec.italic ? ' italic' : ''));
+        if (!res && !quiet) { PI.fontLogged[key] = true; L(T('Шрифт не найден: ', 'Font not found: ') + spec.family + ' ' + spec.weight + (spec.italic ? ' italic' : '')); }
         return res;
     };
 
@@ -691,7 +793,7 @@ var PI = PI || {};
     function applyRun(ca, r, font) {
         if (font) { try { ca.textFont = font; } catch (e) {} }
         try { ca.size = r.size; } catch (e) {}
-        try { ca.fillColor = rgb(r.color); } catch (e) {}
+        try { ca.fillColor = r.ref && PI.swatches[r.ref] && !r.gradient ? spotOf(r.ref) : rgb(r.color); } catch (e) {}
         if (r.gradient && r.gradient.type !== 'solid' && PI.curText) {
             try { ca.fillColor = gradientColor(r.gradient, PI.curText.n, PI.curText.c); } catch (e) {}
         }
@@ -708,13 +810,138 @@ var PI = PI || {};
         try { ca.underline = r.decoration === 'underline'; ca.strikeThrough = r.decoration === 'line-through'; } catch (e) {}
         try { ca.kerningMethod = AutoKernType.METRICSROMANONLY; } catch (e) {}
     }
-    function runKey(r) { return [r.family, r.weight, r.italic, r.size, r.color, r.tracking, r.decoration, r.script || '',
+    function runKey(r) { return [r.family, r.weight, r.italic, r.size, r.color, r.tracking, r.decoration, r.script || '', r.ref || '', r.typo || '',
         r.gradient ? 'g' + r.gradient.type + r.gradient.stops.length + (r.gradient.stops[0] || {}).color : ''].join('|'); }
     function just(a) {
         if (a === 'center') return Justification.CENTER;
         if (a === 'right') return Justification.RIGHT;
         if (a === 'justify') return Justification.FULLJUSTIFYLASTLINELEFT;
         return Justification.LEFT;
+    }
+
+    // ---- Библиотека файла: цвета → глобальные образцы, типографика → стили абзаца и символа ----
+    function byName(coll, name) { try { return coll.getByName(name); } catch (e) { return null; } }
+    function fillGradient(g, f) {
+        g.type = f.type === 'radial' ? GradientType.RADIAL : GradientType.LINEAR;
+        while (g.gradientStops.length < f.stops.length) g.gradientStops.add();
+        while (g.gradientStops.length > f.stops.length && g.gradientStops.length > 2) g.gradientStops[g.gradientStops.length - 1].remove();
+        for (var i = 0; i < f.stops.length; i++) {
+            var gs = g.gradientStops[i], sp = f.stops[i];
+            gs.rampPoint = Math.max(0, Math.min(100, sp.offset * 100));
+            gs.midPoint = 50;
+            gs.color = rgb(sp.color);
+            try { gs.opacity = sp.opacity * 100; } catch (e) {}
+        }
+    }
+    function swatchOfSpot(doc, spot) {
+        try {
+            for (var i = 0; i < doc.swatches.length; i++) {
+                var sw = doc.swatches[i];
+                try { if (sw.color.typename === 'SpotColor' && sw.color.spot.name === spot.name) return sw; } catch (e) {}
+            }
+        } catch (e2) {}
+        return null;
+    }
+    function intoGroup(grp, doc, name, spot) {
+        if (!grp) return;
+        var sw = (spot && swatchOfSpot(doc, spot)) || byName(doc.swatches, name);
+        if (sw) { try { grp.addSwatch(sw); } catch (e) {} }
+    }
+    PI.library = wrap(function (s) {
+        var o = parse(s), st = PI.state;
+        if (!st) return 'ERR:' + T('Сначала вызовите PI.begin', 'Call PI.begin first');
+        var doc = st.doc, i, nc = 0, nt = 0, used = {};
+        PI.swatches = {}; PI.libGrads = {}; PI.typos = {};
+        function uniq(name) {
+            var n = name, k = 2;
+            while (used[n]) n = name + ' (' + (k++) + ')';
+            used[n] = true;
+            return n;
+        }
+        var grp = null;
+        if (o.colors && o.colors.length) {
+            grp = byName(doc.swatchGroups, o.group);
+            if (!grp) { try { grp = doc.swatchGroups.add(); grp.name = o.group; } catch (e) { grp = null; } }
+        }
+        for (i = 0; o.colors && i < o.colors.length; i++) {
+            var c = o.colors[i], name = uniq(c.name);
+            try {
+                var spot = null;
+                if (c.type === 'solid') {
+                    spot = byName(doc.spots, name);
+                    if (!spot && byName(doc.swatches, name)) { name = uniq(c.name + ' · Penpot'); spot = byName(doc.spots, name); }
+                    if (!spot) { spot = doc.spots.add(); spot.name = name; }
+                    spot.color = rgb(c.color);
+                    spot.colorType = ColorModel.PROCESS;
+                    PI.swatches[c.id] = spot;
+                } else {
+                    var g = byName(doc.gradients, name);
+                    if (!g) { g = doc.gradients.add(); g.name = name; }
+                    fillGradient(g, c);
+                    PI.libGrads[c.id] = g;
+                }
+                intoGroup(grp, doc, name, spot);
+                nc++;
+            } catch (e) { L(T('Образец «', 'Swatch “') + name + T('» не создан: ', '” was not created: ') + e.message); }
+        }
+        used = {};
+        for (i = 0; o.typos && i < o.typos.length; i++) {
+            var t = o.typos[i], tn = uniq(t.name);
+            try {
+                var font = PI.findFont(t, true);
+                var ps = byName(doc.paragraphStyles, tn) || doc.paragraphStyles.add(tn);
+                var cs = byName(doc.characterStyles, tn) || doc.characterStyles.add(tn);
+                var targets = [ps.characterAttributes, cs.characterAttributes];
+                for (var j = 0; j < targets.length; j++) {
+                    var ca = targets[j];
+                    if (font) { try { ca.textFont = font; } catch (e1) {} }
+                    try { ca.size = t.size; } catch (e2) {}
+                    try { ca.autoLeading = false; ca.leading = t.size * t.lh; } catch (e3) {}
+                    try { ca.tracking = t.tracking || 0; } catch (e4) {}
+                }
+                try { ps.paragraphAttributes.hyphenation = false; } catch (e5) {}
+                PI.typos[t.id] = { ps: ps, cs: cs };
+                nt++;
+                if (!font) L(T('Стиль «', 'Style “') + tn + T('»: нет шрифта ', '”: font not installed — ') + t.family + ' ' + t.weight);
+            } catch (e) { L(T('Стиль «', 'Style “') + tn + T('» не создан: ', '” was not created: ') + e.message); }
+        }
+        return 'OK:' + nc + ',' + nt;
+    });
+
+    function rangeAt(P, off, len) {
+        var rg = P.characters[off];
+        rg.length = len;
+        return rg;
+    }
+    // Стили назначаются до локального форматирования: оно остаётся поверх стиля, и вид не меняется.
+    function applyTypoStyles(tf, paras, lens) {
+        var any = false, i, j;
+        for (i = 0; i < paras.length && !any; i++) for (j = 0; j < paras[i].runs.length; j++) if (paras[i].runs[j].typo && PI.typos[paras[i].runs[j].typo]) { any = true; break; }
+        if (!any) return;
+        var tps = tf.paragraphs, map = [], q = 0;
+        if (tps.length === paras.length) { for (i = 0; i < paras.length; i++) map.push(i); }
+        else { for (i = 0; i < paras.length; i++) map.push(lens[i] > 0 ? q++ : -1); }
+        for (i = 0; i < paras.length; i++) {
+            var pi = map[i], pr = paras[i];
+            if (pi < 0 || pi >= tps.length || !pr.runs.length) continue;
+            // Абзацу — стиль преобладающей типографики, остальным кускам — стили символа.
+            var P = tps[pi], cnt = {}, dom = null, best = 0;
+            for (j = 0; j < pr.runs.length; j++) {
+                var ty = pr.runs[j].typo;
+                if (!ty || !PI.typos[ty]) continue;
+                cnt[ty] = (cnt[ty] || 0) + pr.runs[j].text.length;
+                if (cnt[ty] > best) { best = cnt[ty]; dom = ty; }
+            }
+            if (dom) { try { PI.typos[dom].ps.applyTo(P, true); } catch (e) {} }
+            var off = 0;
+            for (j = 0; j < pr.runs.length; j++) {
+                var r = pr.runs[j], len = r.text.length;
+                if (r.typo && r.typo !== dom && PI.typos[r.typo] && len > 0) {
+                    try { PI.typos[r.typo].cs.applyTo(rangeAt(P, off, len), true); } catch (e2) {}
+                }
+                off += len;
+            }
+        }
     }
 
     function buildText(parent, n, c) {
@@ -755,6 +982,7 @@ var PI = PI || {};
             try { tf.spacing = 0; } catch (e) {}
         }
         tf.contents = str;
+        applyTypoStyles(tf, paras, lens);
 
         var counts = {}, dom = r0, best = 0;
         for (i = 0; i < paras.length; i++) for (j = 0; j < paras[i].runs.length; j++) {
@@ -807,15 +1035,45 @@ var PI = PI || {};
                     cnt = tf.lines.length; tries++;
                 }
                 tries = 0;
-                while (cnt < n.lines && tries < 8) {
+                while (cnt < n.lines && tries < 8 && !overset(tf)) {
                     var tp2 = tf.textPath, dw2 = n.w * 0.005, l2 = tp2.left;
                     tp2.width = tp2.width - dw2;
                     if (align === 'center') tp2.left = l2 + dw2 / 2; else if (align === 'right') tp2.left = l2 + dw2; else tp2.left = l2;
+                    if (overset(tf)) {
+                        tp2.width = tp2.width + dw2;
+                        if (align === 'center') tp2.left = l2; else if (align === 'right') tp2.left = l2; else tp2.left = l2;
+                        break;
+                    }
                     cnt = tf.lines.length; tries++;
                 }
                 if (cnt !== n.lines) L('«' + n.name + '»: ' + T('строк ' + cnt + ' вместо ' + n.lines + ' — проверьте переносы', cnt + ' lines instead of ' + n.lines + ' — check line breaks'));
             } catch (e) {}
         }
+        if (n.mode !== 'point') fitOverset(tf, p0.lead, n);
         return tf;
+    }
+
+    // Текст в области не должен прятаться: если не помещается (у Penpot бывает неверная высота) — растим рамку вниз.
+    function overset(tf) {
+        try {
+            var vis = 0, i;
+            for (i = 0; i < tf.lines.length; i++) vis += tf.lines[i].characters.length;
+            return vis + tf.paragraphs.length - 1 < tf.characters.length;
+        } catch (e) { return false; }
+    }
+    function fitOverset(tf, lead, n) {
+        if (!overset(tf)) return;
+        var tries = 0;
+        try {
+            while (overset(tf) && tries < 60) {
+                var tp = tf.textPath, top = tp.top;
+                tp.height = tp.height + Math.max(4, lead);
+                tp.top = top;
+                tries++;
+            }
+        } catch (e) {}
+        L('«' + n.name + '»: ' + (overset(tf)
+            ? T('текст не помещается в рамку — проверьте', 'text does not fit its frame — check it')
+            : T('рамка текста увеличена — в Penpot у текста неверная высота', 'text frame enlarged — the text height in Penpot is wrong')));
     }
 })();
