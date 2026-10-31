@@ -30,6 +30,7 @@
 - **Картинки** — встраиваются или связываются; WebP и SVG конвертируются автоматически.
 - **Библиотеки** — цвета Penpot становятся глобальными образцами Illustrator, типографика — стилями абзаца и символа; объекты и тексты связаны с ними.
 - **Привязка к Penpot** — в «Примечании» каждого объекта хранится его id в Penpot (переживает копирование и группировку).
+- **Обновление без пересборки** — режим «Обновить»: собранные доски обновляются на месте, объекты, не изменённые в Penpot, и ваши правки в них сохраняются.
 - **Прочее** — скрытые слои переносятся скрытыми, модульные сетки становятся направляющими, порядок слоёв в досках с авторасстановкой как в Penpot.
 - **Интерфейс** — в стиле панелей Illustrator, подстраивается под 4 темы, русский и английский язык.
 
@@ -64,7 +65,7 @@
 
 ### Ограничения
 
-- Обновление уже собранных досок (синхронизация) пока не поддерживается — доски собираются заново.
+- При обновлении объект, изменённый в Penpot, пересобирается — ваши правки именно в этом объекте теряются (в журнале есть список таких объектов). Доски, собранные версиями до 0.9, обновляются полной пересборкой.
 - Наконечники линий и внутренняя тень у сложных объектов построены приближённо.
 - Размытие фона — статичная копия: если после сборки изменить то, что лежит под «стеклом», размытие не обновится. Размытия сильнее примерно 104 (предел Gaussian Blur в Illustrator) получаются слабее, чем в Penpot.
 - Анимации и прототипы Penpot не переносятся.
@@ -74,7 +75,6 @@
 Что планируется добавить в следующих версиях:
 
 - [ ] **Интерактивное (умное) сохранение Illustrator → Penpot** — правки, сделанные в Illustrator, отправляются обратно в файл Penpot: изменённые слои обновляются, новые добавляются, нетронутые не меняются.
-- [ ] **Синхронизация Penpot → Illustrator** — обновление уже собранных досок без пересборки, с сохранением ручных правок.
 - [ ] **Компоненты Penpot → символы Illustrator** — главные компоненты и их копии становятся символами.
 - [ ] **Дизайн-токены Penpot** — перенос токенов в Illustrator.
 - [ ] **Пакетная сборка** — несколько файлов или страниц за один запуск, сборка в отдельные документы.
@@ -113,6 +113,7 @@ Denis Lampusov · © 2026
 - **Images** — embedded or linked; WebP and SVG are converted automatically.
 - **Libraries** — Penpot colors become global Illustrator swatches, typography becomes paragraph and character styles; objects and text are linked to them.
 - **Link to Penpot** — each object’s Note holds its Penpot id (survives copying and grouping).
+- **Update without a rebuild** — the “Update” mode updates built boards in place; objects unchanged in Penpot keep your edits.
 - **Also** — hidden layers stay hidden, layout grids become guides, z-order in auto-layout boards matches Penpot.
 - **UI** — styled like native Illustrator panels, follows all 4 UI themes, Russian and English.
 
@@ -147,7 +148,7 @@ The panel shows which fonts are found (✓) and which are missing (!). With “D
 
 ### Limitations
 
-- Updating already built boards (sync) is not supported yet — boards are rebuilt.
+- On update, an object changed in Penpot is rebuilt — your edits to that particular object are lost (the log lists such objects). Boards built before 0.9 are updated by a full rebuild.
 - Line-end markers and inner shadows on complex objects are approximated.
 - Background blur is a static copy: if you change what lies under the “glass” after the build, the blur is not updated. Blurs stronger than about 104 (the Illustrator Gaussian Blur limit) look weaker than in Penpot.
 - Penpot animations and prototypes are not transferred.
@@ -157,7 +158,6 @@ The panel shows which fonts are found (✓) and which are missing (!). With “D
 Planned for future versions:
 
 - [ ] **Interactive (smart) save Illustrator → Penpot** — edits made in Illustrator are sent back to the Penpot file: changed layers are updated, new ones added, untouched ones left as they are.
-- [ ] **Sync Penpot → Illustrator** — update already built boards without a full rebuild, keeping manual edits.
 - [ ] **Penpot components → Illustrator symbols** — main components and their copies become symbols.
 - [ ] **Penpot design tokens** — bring tokens into Illustrator.
 - [ ] **Batch build** — several files or pages in one run, each into its own document.

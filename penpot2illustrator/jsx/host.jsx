@@ -135,16 +135,314 @@ var PI = PI || {};
         try { ab.name = b.name; } catch (e) {}
 
         ensurePadding(doc, o.tree);
-        var ctx = { ox: ox, oy: oy, doc: doc, name: b.name, ref: o.ref || null, tagged: 0 };
+        var ctx = { ox: ox, oy: oy, doc: doc, name: b.name, ref: o.ref || null, tagged: 0, boardId: b.id };
         var t0 = new Date().getTime();
         var item = build(st.layer, o.tree, ctx);
         if (item) {
             try { item.name = b.name; } catch (e) {}
-            if (ctx.ref) setNote(item, idNote(b.id, ctx.ref, true));
+            if (ctx.ref) setNote(item, boardNote(b, ctx.ref, o.tree, ox, oy));
         }
         if (b.guides && o.guides !== false) makeGuides(doc, b, ox, oy);
         return 'OK:' + b.name + ' — ' + ((new Date().getTime() - t0) / 1000).toFixed(1) + T(' c', ' s');
     });
+
+    function boardNote(b, ref, tree, ox, oy) {
+        return idNote(b.id, ref, true) + ';x=' + Math.round(ox * 100) / 100 + ';y=' + Math.round(oy * 100) / 100 + hashPart(tree);
+    }
+
+    // ---- Обновление уже собранной доски без пересборки ----
+    function noteOf(it) { try { return String(it.note || ''); } catch (e) { return ''; } }
+    function idOfNote(s) {
+        if (s.indexOf(ID_PREFIX) !== 0) return null;
+        var e = s.indexOf(';');
+        return s.slice(ID_PREFIX.length, e < 0 ? s.length : e);
+    }
+    function noteVal(s, key) {
+        var parts = String(s).split(';');
+        for (var i = 1; i < parts.length; i++) {
+            var k = parts[i].indexOf('=');
+            if (k > 0 && parts[i].slice(0, k) === key) return parts[i].slice(k + 1);
+        }
+        return null;
+    }
+    function ownsFile(s, fid) { return !fid || noteVal(s, 'file') === fid; }
+    function findBoards(doc, id, fid) {
+        var out = [];
+        function scan(c, depth) {
+            var i;
+            try { for (i = 0; i < c.pageItems.length; i++) look(c.pageItems[i], depth); } catch (e) {}
+            try { for (i = 0; c.layers && i < c.layers.length; i++) scan(c.layers[i], depth); } catch (e2) {}
+        }
+        function look(it, depth) {
+            var s = noteOf(it);
+            if (idOfNote(s) === id && noteVal(s, 'board') === '1' && ownsFile(s, fid)) { out.push(it); return; }
+            if (!s && it.typename === 'GroupItem' && depth < 6) {
+                try { for (var i = 0; i < it.pageItems.length; i++) look(it.pageItems[i], depth + 1); } catch (e) {}
+            }
+        }
+        for (var l = 0; l < doc.layers.length; l++) scan(doc.layers[l], 0);
+        return out;
+    }
+    function collectIds(it, map, fid, depth) {
+        if (depth > 60) return;
+        var items;
+        try { if (it.typename !== 'GroupItem') return; items = it.pageItems; } catch (e) { return; }
+        for (var i = 0; i < items.length; i++) {
+            var k = items[i], s = noteOf(k);
+            if (isBackdrop(k)) continue;
+            var id = idOfNote(s);
+            if (id && ownsFile(s, fid) && !map.hasOwnProperty(id)) map[id] = k;
+            collectIds(k, map, fid, depth + 1);
+        }
+    }
+    function treeIds(n, out) {
+        if (n.id) out[n.id] = true;
+        for (var i = 0; n.children && i < n.children.length; i++) treeIds(n.children[i], out);
+        return out;
+    }
+    function hasBgBlur(n) {
+        if (n.bgBlur) return true;
+        for (var i = 0; n.children && i < n.children.length; i++) if (hasBgBlur(n.children[i])) return true;
+        return false;
+    }
+    function backdropOf(it, id) {
+        if (!id) return null;
+        try {
+            var par = it.parent, want = BD_NOTE + ';of=' + id;
+            for (var i = 0; i < par.pageItems.length; i++) if (noteOf(par.pageItems[i]) === want) return par.pageItems[i];
+        } catch (e) {}
+        return null;
+    }
+    function sameItem(a, b) {
+        if (!a || !b) return false;
+        try { if (a === b) return true; } catch (e) {}
+        var na = noteOf(a);
+        return !!na && na === noteOf(b) && a.typename === b.typename;
+    }
+    function removeWithBackdrop(it, id) {
+        var bd = backdropOf(it, id);
+        try { it.remove(); } catch (e) {}
+        if (bd) { try { bd.remove(); } catch (e2) {} }
+    }
+    // Поставить объект (с его размытием фона) прямо над anchor.
+    function moveAbove(it, anchor, id) {
+        var bd = backdropOf(it, id);
+        if (bd) { bd.move(anchor, ElementPlacement.PLACEBEFORE); it.move(bd, ElementPlacement.PLACEBEFORE); }
+        else it.move(anchor, ElementPlacement.PLACEBEFORE);
+    }
+    // Нижние «части» группы (фон рамки) — новый объект без соседей встаёт над ними.
+    function placeAtBottom(x, G) {
+        var items = G.pageItems, n = items.length, anchor = null;
+        for (var i = n - 1; i >= 0; i--) {
+            var p = items[i];
+            if (sameItem(p, x)) continue;
+            if (isPart(noteOf(p)) && !isClipPath(p)) anchor = p; else break;
+        }
+        if (anchor) x.move(anchor, ElementPlacement.PLACEBEFORE);
+        else x.move(G, ElementPlacement.PLACEATEND);
+    }
+    function replaceItem(old, k, c) {
+        var bd = backdropOf(old, k.id), par = old.parent;
+        try { old.hidden = true; } catch (e) {}
+        if (bd) { try { bd.hidden = true; } catch (e) {} }
+        c.place = function (x) { x.move(old, ElementPlacement.PLACEBEFORE); };
+        var top = build(par, k, c);
+        c.place = null;
+        try { old.remove(); } catch (e) {}
+        if (bd) { try { bd.remove(); } catch (e) {} }
+        return top;
+    }
+    function rebuildParts(G, node, c) {
+        var i, kids = node.children || [], items = [];
+        try { if (G.clipped) G.clipped = false; } catch (e) {}
+        for (i = 0; i < G.pageItems.length; i++) items.push(G.pageItems[i]);
+        for (i = 0; i < items.length; i++) if (isPart(noteOf(items[i]))) { try { items[i].remove(); } catch (e) {} }
+        var firstId = kids.length;
+        for (i = 0; i < kids.length; i++) if (kids[i].id) { firstId = i; break; }
+        for (i = firstId - 1; i >= 0; i--) {
+            c.place = function (x) { x.move(G, ElementPlacement.PLACEATEND); };
+            build(G, kids[i], c);
+        }
+        for (i = firstId; i < kids.length; i++) {
+            if (kids[i].id) continue;
+            c.place = function (x) { x.move(G, ElementPlacement.PLACEATBEGINNING); };
+            build(G, kids[i], c);
+        }
+        c.place = null;
+        if (node.clip) {
+            var cp = rrectPath(G, node.clip.x, node.clip.y, node.clip.w, node.clip.h, node.clip.radii, c);
+            cp.filled = false; cp.stroked = false; setNote(cp, partNote(c));
+            if (node.clip.rot || node.clip.flip || node.clip.matrix) placeTransform(cp, node.clip, c);
+            G.clipped = true;
+        }
+    }
+    function updateKids(G, node, c, all, ownChanged) {
+        if (ownChanged) rebuildParts(G, node, c);
+        var kids = node.children || [], prev = null;
+        for (var i = 0; i < kids.length; i++) {
+            var k = kids[i];
+            if (!k.id) continue;
+            var it = all[k.id], top = null, inG = false;
+            if (it) {
+                try { inG = sameItem(it.parent, G); } catch (e) {}
+                var s = noteOf(it);
+                if (noteVal(s, 'h') === k.fpAll && !hasBgBlur(k)) { top = it; c.st.kept++; }
+                else if (noteVal(s, 'o') === k.fpOwn && k.kind === 'group' && !k.shadows && !k.bgBlur && !k.mask && it.typename === 'GroupItem') {
+                    updateKids(it, k, c, all, false);
+                    setNote(it, idNote(k.id, c.ref, false) + hashPart(k));
+                    top = it;
+                } else {
+                    top = replaceItem(it, k, c);
+                    c.st.upd++;
+                    c.st.names.push(k.name);
+                }
+                if (top && inG && prev) moveAbove(top, prev, k.id);
+            } else {
+                var anchor = prev;
+                c.place = function (x) { if (anchor) x.move(anchor, ElementPlacement.PLACEBEFORE); else placeAtBottom(x, G); };
+                top = build(G, k, c);
+                c.place = null;
+                inG = true;
+                c.st.add++;
+            }
+            if (top && inG) prev = top;
+        }
+    }
+
+    PI.update = wrap(function (s) {
+        var o = parse(s), st = PI.state;
+        if (!st) return 'ERR:' + T('Сначала вызовите PI.begin', 'Call PI.begin first');
+        var doc = st.doc, b = o.board, ref = o.ref || {}, fid = ref.file;
+        var found = findBoards(doc, b.id, fid), regrouped = false;
+        if (!found.length) {
+            // Группы доски нет (разгруппировали, сняли маску), но её объекты с id остались — собираем их обратно.
+            var rg = regroupBoard(doc, b, fid, o.tree);
+            if (!rg) return 'NEW';
+            found = [rg]; regrouped = true;
+        }
+        if (found.length > 1) L(T('Доска «', 'Board “') + b.name + T('» есть в документе ' + found.length + ' раза — обновлена верхняя', '” occurs ' + found.length + ' times in the document — the top one was updated'));
+        var G = found[0], note = noteOf(G);
+        var ox = parseFloat(noteVal(note, 'x')), oy = parseFloat(noteVal(note, 'y')), ab = null, i, r;
+        if (regrouped) {
+            var gb = G.geometricBounds, gx = (gb[0] + gb[2]) / 2, gy = (gb[1] + gb[3]) / 2, bestD = 1e18;
+            for (i = 0; i < doc.artboards.length; i++) {
+                if (doc.artboards[i].name !== b.name) continue;
+                r = doc.artboards[i].artboardRect;
+                var d = Math.pow((r[0] + r[2]) / 2 - gx, 2) + Math.pow((r[1] + r[3]) / 2 - gy, 2);
+                if (d < bestD) { bestD = d; ox = r[0]; oy = r[1]; }
+            }
+            if (!isFinite(ox)) { ox = gb[0]; oy = gb[1]; }
+            note = idNote(b.id, ref, true) + ';x=' + ox + ';y=' + oy + ';o=-';
+        }
+        for (i = 0; i < doc.artboards.length && isFinite(ox); i++) {
+            r = doc.artboards[i].artboardRect;
+            if (Math.abs(r[0] - ox) < 0.5 && Math.abs(r[1] - oy) < 0.5) { ab = doc.artboards[i]; break; }
+        }
+        for (i = 0; i < doc.artboards.length && !ab; i++) if (doc.artboards[i].name === G.name) ab = doc.artboards[i];
+        if (ab) { r = ab.artboardRect; ox = r[0]; oy = r[1]; }
+        if (!isFinite(ox) || !isFinite(oy)) return 'ERR:' + T('не найдена монтажная область доски', 'the board artboard was not found');
+        var t0 = new Date().getTime();
+        var c = { ox: ox, oy: oy, doc: doc, name: b.name, ref: ref, tagged: 0, root: G, boardId: b.id, st: { kept: 0, upd: 0, add: 0, del: 0, names: [] } };
+        if (!regrouped && noteVal(note, 'h') === o.tree.fpAll && Math.abs((ab ? r[2] - r[0] : b.w) - b.w) < 0.01) return 'SAME:' + b.name;
+        if (ab) { try { ab.artboardRect = [ox, oy, ox + b.w, oy - b.h]; ab.name = b.name; } catch (e) {} }
+        ensurePadding(doc, o.tree);
+        var item = G, full = !noteVal(note, 'o') || G.typename !== 'GroupItem' || !!(o.tree.shadows && o.tree.shadows.length) || !!o.tree.bgBlur;
+        if (full) {
+            // Доска собрана версией без отпечатков — пересобираем целиком на том же месте.
+            c.root = null;
+            try { G.hidden = true; } catch (e) {}
+            c.place = function (x) { x.move(G, ElementPlacement.PLACEBEFORE); };
+            item = build(G.parent, o.tree, c);
+            c.place = null;
+            try { G.remove(); } catch (e) {}
+            if (!noteVal(note, 'o')) L(T('«', '“') + b.name + T('» собрана старой версией панели — пересобрана целиком', '” was built by an older panel version — rebuilt completely'));
+        } else if (regrouped) {
+            L(T('«', '“') + b.name + T('»: доска была разгруппирована — собрана обратно в группу', '”: the board had been ungrouped — regrouped'));
+            var allR = {};
+            collectIds(G, allR, fid, 0);
+            updateKids(G, o.tree, c, allR, true);
+            var freshR = treeIds(o.tree, {});
+            for (var idR in allR) {
+                if (!allR.hasOwnProperty(idR) || freshR[idR]) continue;
+                removeWithBackdrop(allR[idR], idR);
+                c.st.del++;
+            }
+        } else {
+            var all = {};
+            collectIds(G, all, fid, 0);
+            updateKids(G, o.tree, c, all, noteVal(note, 'o') !== o.tree.fpOwn);
+            var fresh = treeIds(o.tree, {});
+            for (var id in all) {
+                if (!all.hasOwnProperty(id) || fresh[id]) continue;
+                removeWithBackdrop(all[id], id);
+                c.st.del++;
+            }
+        }
+        if (item) {
+            try { item.name = b.name; } catch (e) {}
+            setNote(item, boardNote(b, ref, o.tree, ox, oy));
+        }
+        removeGuides(doc, b.id);
+        if (b.guides && o.guides !== false) makeGuides(doc, b, ox, oy);
+        var sec = ((new Date().getTime() - t0) / 1000).toFixed(1) + T(' c', ' s');
+        if (full) return 'OK:' + b.name + ' — ' + sec;
+        var x = c.st;
+        if (x.upd) L(T('«', '“') + b.name + T('»: пересобраны изменённые в Penpot — ', '”: rebuilt (changed in Penpot) — ') + x.names.join(', '));
+        return 'OK:' + b.name + ' — ' + T('обновлено ' + x.upd + ', добавлено ' + x.add + ', удалено ' + x.del + ', без изменений ' + x.kept,
+            x.upd + ' updated, ' + x.add + ' added, ' + x.del + ' removed, ' + x.kept + ' unchanged') + ' · ' + sec;
+    });
+
+    function regroupBoard(doc, b, fid, tree) {
+        var want = treeIds(tree, {}), partWant = PART_NOTE + ';of=' + b.id, hits = [];
+        delete want[b.id];
+        function walk(c, depth) {
+            var i, items;
+            try { items = c.pageItems; } catch (e) { return; }
+            for (i = 0; i < items.length; i++) {
+                var it = items[i], s = noteOf(it), id = idOfNote(s);
+                if ((id && want[id] && ownsFile(s, fid)) || s === partWant) { hits.push(it); continue; }
+                if (it.typename === 'GroupItem' && depth < 60 && !isBackdrop(it)) walk(it, depth + 1);
+            }
+            try { for (i = 0; c.layers && i < c.layers.length; i++) walk(c.layers[i], depth); } catch (e2) {}
+        }
+        for (var l = 0; l < doc.layers.length; l++) walk(doc.layers[l], 0);
+        var withId = 0, k;
+        for (k = 0; k < hits.length; k++) if (idOfNote(noteOf(hits[k]))) withId++;
+        if (!withId) return null;
+        function layerOf(it) { var p = it; while (p && p.typename !== 'Layer') p = p.parent; return p; }
+        function topIn(it, lay) { var p = it; while (p.parent && p.parent.typename !== 'Layer') p = p.parent; return p.parent === lay || sameItem(p.parent, lay) ? p : null; }
+        var lay = layerOf(hits[0]), tops = [], seen = {};
+        // Позиция в слое — надёжный ключ: у частей доски одинаковые примечания, а === в ExtendScript ненадёжно.
+        function zOf(it) {
+            var q, n = lay.pageItems.length;
+            for (q = 0; q < n; q++) if (lay.pageItems[q] === it) return q;
+            try { var zi = it.zOrderPosition; if (zi) return n - zi; } catch (e) {}
+            return -1;
+        }
+        for (k = 0; k < hits.length; k++) {
+            var t = topIn(hits[k], lay);
+            if (!t) continue;
+            var z = zOf(t);
+            if (z < 0 || seen[z]) continue;
+            seen[z] = true; tops.push({ it: t, z: z });
+        }
+        if (!tops.length) return null;
+        tops.sort(function (a, b2) { return a.z - b2.z; });
+        var G = lay.groupItems.add();
+        G.move(tops[0].it, ElementPlacement.PLACEBEFORE);
+        for (k = 0; k < tops.length; k++) tops[k].it.move(G, ElementPlacement.PLACEATEND);
+        try { G.name = b.name; } catch (e) {}
+        return G;
+    }
+
+    function removeGuides(doc, id) {
+        var lay;
+        try { lay = doc.layers.getByName('Сетки Penpot'); } catch (e) { return; }
+        var want = 'p2a:guides;of=' + id;
+        for (var i = lay.pageItems.length - 1; i >= 0; i--) {
+            if (noteOf(lay.pageItems[i]) === want) { try { lay.pageItems[i].remove(); } catch (e) {} }
+        }
+    }
 
     function maxEffect(n) {
         var m = 0, i;
@@ -166,10 +464,11 @@ var PI = PI || {};
     function Y(c, y) { return c.oy - y; }
 
     function build(parent, n, c) {
-        var it = null;
+        var it = null, pl = c.place || null;
+        c.place = null;
         try {
             switch (n.kind) {
-                case 'group': it = buildGroup(parent, n, c); break;
+                case 'group': it = buildGroup(parent, n, c, pl); pl = null; break;
                 case 'rect': case 'ellipse': case 'path': it = buildShape(parent, n, c); break;
                 case 'image': it = buildImage(parent, n, c); break;
                 case 'text': it = buildText(parent, n, c); break;
@@ -181,6 +480,7 @@ var PI = PI || {};
             return null;
         }
         if (!it) return null;
+        if (pl) { try { pl(it); } catch (e) { L('«' + n.name + '»: ' + T('не удалось поставить на место — ', 'could not be placed — ') + e.message); } }
         try { it.name = n.name; } catch (e) {}
         if (n.rot || n.flip || n.matrix) placeTransform(it, n, c);
         if (n.bgBlur) {
@@ -194,6 +494,7 @@ var PI = PI || {};
         if (n.shadows && n.shadows.length) {
             var wrapG = parent.groupItems.add();
             wrapG.name = n.name;
+            wrapG.move(it, ElementPlacement.PLACEBEFORE);
             it.move(wrapG, ElementPlacement.PLACEATEND);
             for (var i = 0; i < n.shadows.length; i++) {
                 var sh = n.shadows[i];
@@ -207,7 +508,10 @@ var PI = PI || {};
         if (n.blur) effect(top, blurXML(n.blur / 2), n.name);
         if (n.blend) setBlend(top, n.blend);
         if (n.hidden) { try { top.hidden = true; } catch (e) {} }
-        if (n.id && c.ref) { setNote(top, idNote(n.id, c.ref, false)); c.tagged++; }
+        if (c.ref) {
+            if (n.id) { setNote(top, idNote(n.id, c.ref, false) + hashPart(n)); c.tagged++; }
+            else setNote(top, partNote(c));
+        }
         return top;
     }
 
@@ -219,9 +523,13 @@ var PI = PI || {};
         return s;
     }
     function setNote(it, s) { try { it.note = s; } catch (e) {} }
+    var PART_NOTE = 'p2a:part';
+    function partNote(c) { return PART_NOTE + (c.boardId ? ';of=' + c.boardId : ''); }
+    function isPart(s) { return String(s).indexOf(PART_NOTE) === 0; }
+    function hashPart(n) { return n.fpAll ? ';h=' + n.fpAll + ';o=' + n.fpOwn : ''; }
     function clearIds(it, depth) {
         depth = depth || 0;
-        try { if (String(it.note).indexOf(ID_PREFIX) === 0) it.note = ''; } catch (e) {}
+        try { var nt = String(it.note); if (nt.indexOf(ID_PREFIX) === 0 || nt.indexOf('p2a:part') === 0) it.note = ''; } catch (e) {}
         if (depth > 40) return;
         try {
             if (it.typename === 'GroupItem') for (var i = 0; i < it.pageItems.length; i++) clearIds(it.pageItems[i], depth + 1);
@@ -384,16 +692,29 @@ var PI = PI || {};
         return it.visibleBounds;
     }
     function isBackdrop(it) {
-        try { if (it.name === BD_MARK || it.note === BD_NOTE) return true; } catch (e) {}
+        try { if (it.name === BD_MARK || String(it.note).indexOf(BD_NOTE) === 0) return true; } catch (e) {}
+        return false;
+    }
+    var SELF_NOTE = '__p2a_self__';
+    function isSelf(it) { try { return it.note === SELF_NOTE; } catch (e) { return false; } }
+    function containsSelf(it, depth) {
+        if (isSelf(it)) return true;
+        if (depth > 30) return false;
+        try {
+            if (it.typename === 'GroupItem') for (var i = 0; i < it.pageItems.length; i++) if (containsSelf(it.pageItems[i], depth + 1)) return true;
+        } catch (e) {}
         return false;
     }
     function copyBelow(src, dst, region, depth, st) {
         var items = [], i;
         for (i = 0; i < src.pageItems.length; i++) items.push(src.pageItems[i]);
         for (i = items.length - 1; i >= 0; i--) {
+            if (st.stop) return;
             var it = items[i], skip = false;
+            if (isSelf(it)) { st.stop = true; return; }
             try { skip = it.hidden || it.guides || isBackdrop(it); } catch (e) {}
             if (skip) continue;
+            if (it.typename === 'GroupItem' && it.clipped && depth < 30 && containsSelf(it, 0)) { copyBelow(it, dst, region, depth + 1, st); continue; }
             if (it.typename === 'GroupItem' && !it.clipped && depth < 30) {
                 var plain = true;
                 try { plain = it.opacity >= 99.9 && it.blendingMode === BlendModes.NORMAL; } catch (e) {}
@@ -429,17 +750,18 @@ var PI = PI || {};
         try {
             it.hidden = true;
             g = parent.groupItems.add();
+            g.move(it, ElementPlacement.PLACEAFTER);
             g.name = BD_MARK;
-            try { g.note = BD_NOTE; } catch (e) {}
+            try { g.note = BD_NOTE + (n.id ? ';of=' + n.id : ''); } catch (e) {}
             var inner = g.groupItems.add();
             inner.name = BD_MARK;
             step = T('копирование фона', 'copying content');
-            copyBelow(root, inner, region, 0, st);
+            var oldNote = '';
+            try { oldNote = it.note; it.note = SELF_NOTE; } catch (e) {}
+            try { copyBelow(root, inner, region, 0, st); } finally { try { it.note = oldNote; } catch (e) {} }
             clearIds(inner);
             if (st.failed.length) L('«' + n.name + '»: ' + T('в размытие фона не попали: ', 'left out of background blur: ') + st.failed.join('; '));
             it.hidden = wasHidden;
-            step = T('порядок слоёв', 'stacking');
-            it.move(parent, ElementPlacement.PLACEATBEGINNING);
             if (inner.pageItems.length === 0) { g.remove(); g = null; return null; }
             inner.name = T('Фон под объектом', 'Content behind');
             step = T('размытие', 'blur');
@@ -466,6 +788,7 @@ var PI = PI || {};
         try { lay = doc.layers.getByName('Сетки Penpot'); } catch (e) { lay = doc.layers.add(); lay.name = 'Сетки Penpot'; }
         lay.locked = false;
         var g = lay.groupItems.add(); g.name = 'Сетка — ' + b.name;
+        if (b.id) setNote(g, 'p2a:guides;of=' + b.id);
         var i, p;
         for (i = 0; i < b.guides.v.length; i++) {
             p = g.pathItems.add(); p.setEntirePath([[ox + b.guides.v[i], oy], [ox + b.guides.v[i], oy - b.h]]); p.guides = true;
@@ -493,8 +816,9 @@ var PI = PI || {};
         return g;
     }
 
-    function buildGroup(parent, n, c) {
+    function buildGroup(parent, n, c, pl) {
         var g = parent.groupItems.add();
+        if (pl) pl(g);
         if (!c.root) c.root = g;
         var kids = n.children || [];
         for (var i = 0; i < kids.length; i++) build(g, kids[i], c);
@@ -507,6 +831,7 @@ var PI = PI || {};
         if (n.clip) {
             var cp = rrectPath(g, n.clip.x, n.clip.y, n.clip.w, n.clip.h, n.clip.radii, c);
             cp.filled = false; cp.stroked = false;
+            if (c.ref) setNote(cp, partNote(c));
             if (n.clip.rot || n.clip.flip || n.clip.matrix) placeTransform(cp, n.clip, c);
             g.clipped = true;
         }

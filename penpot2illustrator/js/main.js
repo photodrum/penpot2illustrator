@@ -172,7 +172,7 @@
   function loadFileById(id, name) {
     status(name ? tr('Загружаю «{n}»…', 'Loading “{n}”…', { n: name }) : tr('Загружаю файл…', 'Loading file…'));
     return request(serverUrl() + '/api/rpc/command/get-file?id=' + id, { headers: authHeaders(true) })
-      .then(function (r) { setFile(r.buf.toString('utf8'), name); setConn(true); settings.fileId = id; save(); status(tr('Файл загружен', 'File loaded'), 'ok'); })
+      .then(function (r) { setFile(r.buf.toString('utf8'), name); S.fromApi = true; setConn(true); settings.fileId = id; save(); status(tr('Файл загружен', 'File loaded'), 'ok'); })
       .catch(function (e) { status(tr('Ошибка загрузки: {e}', 'Load error: {e}', { e: e.message }), 'err'); });
   }
 
@@ -262,10 +262,35 @@
     if (v === 'browse' && !S.projects) loadProjects();
   }
 
+  // Перед сборкой файл перечитывается с сервера: панель могла быть открыта давно, а в Penpot уже правки.
+  // Страница и отметки досок сохраняются; если были отмечены все — отмечаются и новые.
+  function refreshFile() {
+    var fid = S.file && S.file.id;
+    if (!S.fromApi || !fid || !hasNode || !settings.token) return Promise.resolve(null);
+    var prevPage = S.pageId, prevSel = selectedBoards(), all = boardInputs(), allBefore = prevSel.length === all.length;
+    var known = {};
+    S.boards.forEach(function (b) { known[b.id] = true; });
+    status(tr('Перечитываю файл из Penpot…', 'Re-reading the file from Penpot…'));
+    return request(serverUrl() + '/api/rpc/command/get-file?id=' + fid, { headers: authHeaders(true) }).then(function (r) {
+      var name = S.fileName;
+      setFile(r.buf.toString('utf8'), name);
+      S.fromApi = true;
+      if (prevPage && Array.prototype.some.call($('page').options, function (o) { return o.value === prevPage; }) && $('page').value !== prevPage) {
+        $('page').value = prevPage; loadBoards();
+      }
+      boardInputs().forEach(function (inp) {
+        var on = allBefore || prevSel.indexOf(inp.value) >= 0;
+        inp.checked = on; inp.closest('.board').classList.toggle('on', on);
+      });
+      boardsChanged();
+      return S.boards.filter(function (b) { return !known[b.id]; }).map(function (b) { return b.name; });
+    });
+  }
+
   function loadFromFile(f) {
     var rd = new FileReader();
     rd.onload = function () {
-      try { setFile(rd.result, f.name.replace(/\.json$/i, '')); status(tr('Файл прочитан', 'File read'), 'ok'); }
+      try { setFile(rd.result, f.name.replace(/\.json$/i, '')); S.fromApi = false; status(tr('Файл прочитан', 'File read'), 'ok'); }
       catch (e) { status(e.message, 'err'); }
     };
     rd.readAsText(f, 'utf-8');
@@ -409,7 +434,7 @@
     if (S.busy) return;
     var n = S.file ? selectedBoards().length : 0;
     $('build').disabled = !n;
-    $('build').textContent = n ? t('btn.build', { n: boardWord(n, true) }) : t('btn.build.none');
+    $('build').textContent = n ? t(settings.target === 'update' ? 'btn.update' : 'btn.build', { n: boardWord(n, true) }) : t('btn.build.none');
   }
 
   function refreshFonts() {
@@ -741,15 +766,26 @@
     if (!b) { updateBuildButton(); progress(0, 0); }
   }
   function buildAll() {
-    var ids = selectedBoards();
-    if (!ids.length) { status(tr('Не выбрано ни одной доски', 'No boards selected'), 'err'); return; }
+    if (!selectedBoards().length) { status(tr('Не выбрано ни одной доски', 'No boards selected'), 'err'); return; }
     setBusy(true);
     clearLog(); setLogOpen(false);
+    refreshFile().then(function (fresh) {
+      if (fresh) log(fresh.length
+        ? tr('Файл перечитан из Penpot, новые доски: {l}', 'File re-read from Penpot, new boards: {l}', { l: fresh.join(', ') })
+        : tr('Файл перечитан из Penpot', 'File re-read from Penpot'), 'ok');
+    }, function (e) {
+      log(tr('Не удалось перечитать файл — собираю по загруженной копии: {e}', 'Could not re-read the file — building from the loaded copy: {e}', { e: e.message }), 'warn');
+    }).then(buildNow);
+  }
+  function buildNow() {
+    var ids = selectedBoards();
+    if (!ids.length) { status(tr('Не выбрано ни одной доски', 'No boards selected'), 'err'); setBusy(false); return; }
+    setBusy(true);
     var first = S.boards.filter(function (b) { return b.id === ids[0]; })[0];
     var t0 = Date.now(), done = 0, warnTotal = 0, svgRaw = [];
-    var place = null, newDoc = settings.target === 'new';
+    var place = null, upd = settings.target === 'update', newDoc = settings.target === 'new';
     status(tr('Подготовка документа…', 'Preparing the document…'));
-    $('build').textContent = t('btn.building', { i: 0, n: ids.length });
+    $('build').textContent = t(upd ? 'btn.updating' : 'btn.building', { i: 0, n: ids.length });
     progress(0.02, 1);
     ensureHost().then(function () {
       return prepareFonts();
@@ -796,7 +832,7 @@
           P2A.lang = I18N.lang;
           var conv = P2A.convert(S.file, S.pageId, id, { hidden: settings.keepHidden ? 'keep' : 'skip' });
           status(tr('Доска {i} из {n}: {b}', 'Board {i} of {n}: {b}', { i: done + 1, n: ids.length, b: conv.board.name }));
-          $('build').textContent = t('btn.building', { i: done + 1, n: ids.length });
+          $('build').textContent = t(upd ? 'btn.updating' : 'btn.building', { i: done + 1, n: ids.length });
           var map = {};
           var dl = conv.media.map(function (m) {
             return fetchMedia(m).then(function (f) { map[m.id] = f; })
@@ -805,11 +841,19 @@
           return Promise.all(dl).then(function () {
             attachMedia(conv.tree, map);
             conv.warnings.forEach(function (w) { log(conv.board.name + ': ' + w, 'warn'); warnTotal++; });
-            if (conv.svgRaw && conv.svgRaw.length) svgRaw.push({ board: conv.board.name, n: conv.svgRaw.length });
             var ref = { file: S.file.id || '', page: S.pageId, revn: S.file.revn != null ? S.file.revn : null };
-            return host('PI.board(' + lit({ board: conv.board, tree: conv.tree, place: place ? place.pos[id] : null, guides: settings.guides, ref: ref }) + ')');
+            var args = lit({ board: conv.board, tree: conv.tree, place: place ? place.pos[id] : null, guides: settings.guides, ref: ref });
+            if (!upd) return host('PI.board(' + args + ')');
+            return host('PI.update(' + args + ')').then(function (r) {
+              if (r !== 'NEW') return r;
+              return host('PI.board(' + args + ')').then(function (r2) {
+                return r2.indexOf('OK:') === 0 ? 'OK:' + r2.slice(3) + tr(' (новая)', ' (new)') : r2;
+              });
+            });
           }).then(function (res) {
-            if (res.indexOf('OK:') === 0) log('✓ ' + res.slice(3), 'ok');
+            if (res.indexOf('SAME:') !== 0 && conv.svgRaw && conv.svgRaw.length) svgRaw.push({ board: conv.board.name, n: conv.svgRaw.length });
+            if (res.indexOf('SAME:') === 0) log('✓ ' + tr('{b} — без изменений', '{b} — no changes', { b: res.slice(5) }), 'ok');
+            else if (res.indexOf('OK:') === 0) log('✓ ' + res.slice(3), 'ok');
             else log('✕ ' + conv.board.name + ': ' + res.replace(/^ERR:/, ''), 'err');
             return host('PI.takeLog()');
           }).then(function (hl) {
@@ -890,8 +934,12 @@
       b.setAttribute('aria-checked', b.getAttribute('data-v') === v ? 'true' : 'false');
     });
     updateOptionsSum();
+    updateBuildButton();
   }
-  function updateOptionsSum() { $('sumOptions').textContent = t(settings.target === 'new' ? 'opt.new' : 'opt.current'); }
+  function updateOptionsSum() {
+    $('sumOptions').textContent = t(settings.target === 'new' ? 'opt.new' : settings.target === 'update' ? 'opt.update.s' : 'opt.current');
+    $('updateHint').hidden = settings.target !== 'update';
+  }
 
   function segKeys(group, onPick) {
     group.addEventListener('keydown', function (e) {

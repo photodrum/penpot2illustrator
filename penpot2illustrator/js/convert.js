@@ -437,6 +437,28 @@
     return nodes;
   }
 
+  // Отпечатки для обновления без пересборки: n.fpOwn — свои свойства узла (вместе с частями без id: фон, обводки рамки),
+  // n.fpAll — всё поддерево. FNV-1a, 32 бита. (Не h/o: у фигур h — высота.)
+  function fnv(str) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0;
+    }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
+  function hashTree(n) {
+    var own = {}, k, parts = [], kids = [];
+    for (k in n) if (n.hasOwnProperty(k) && k !== 'children' && k !== 'fpAll' && k !== 'fpOwn' && k !== 'file') own[k] = n[k];
+    (n.children || []).forEach(function (ch) {
+      if (ch.id) kids.push(ch.id + '=' + hashTree(ch));
+      else parts.push(JSON.stringify(ch));
+    });
+    n.fpOwn = fnv(JSON.stringify(own) + '|' + parts.join(','));
+    n.fpAll = fnv(n.fpOwn + ':' + kids.join(','));
+    return n.fpAll;
+  }
+
   function convert(file, pageId, boardId, opts) {
     opts = opts || {};
     var objs = objectsOf(file, pageId);
@@ -676,6 +698,8 @@
     }
 
     var tree = convFrame(board, true) || { kind: 'group', name: board.name, children: [] };
+    tree.id = boardId;
+    hashTree(tree);
     var guides = gridGuides(board);
     return {
       board: { id: boardId, name: board.name, w: board.width, h: board.height, x: board.x, y: board.y, guides: guides },
@@ -788,7 +812,7 @@
   }
 
   api = { lang: 'ru', pages: pages, boards: boards, convert: convert, fontsUsed: fontsUsed, parsePath: parsePath, parseLink: parseLink,
-    libraryOf: libraryOf, refsUsed: refsUsed };
+    libraryOf: libraryOf, refsUsed: refsUsed, hashTree: hashTree };
   if (typeof window !== 'undefined') window.P2A = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(this);
