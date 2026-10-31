@@ -212,9 +212,11 @@
       <span class="ttl" data-i18n="sec.options">Параметры сборки</span><span class="sum" id="sumOptions"></span></button>
     <div class="sec-b" id="bOptions">
       <div class="seg" role="radiogroup" id="target" style="margin-top:4px">
-        <button role="radio" data-v="new" data-i18n="opt.new">Новый документ</button>
-        <button role="radio" data-v="current" data-i18n="opt.current">Текущий документ</button>
+        <button role="radio" data-v="new" data-i18n="opt.new.s" data-i18n-title="opt.new">Новый</button>
+        <button role="radio" data-v="current" data-i18n="opt.current.s" data-i18n-title="opt.current">Текущий</button>
+        <button role="radio" data-v="update" data-i18n="opt.update.s" data-i18n-title="opt.update">Обновить</button>
       </div>
+      <div class="hint" id="updateHint" hidden data-i18n="hint.update">Доски, уже собранные в открытом документе, обновятся на месте.</div>
       <div class="row"><span class="lbl" data-i18n="opt.layout">Расположение</span>
         <select id="layout" class="grow"><option value="penpot" data-i18n="opt.layout.penpot">Как на холсте Penpot</option><option value="grid" data-i18n="opt.layout.grid">Сеткой</option></select></div>
       <label class="cb"><input type="checkbox" id="keepHidden"><span data-i18n="opt.hidden">Переносить скрытые слои (скрытыми)</span></label>

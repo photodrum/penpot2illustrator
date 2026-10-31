@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="ru.splat.penpot2ai" ExtensionBundleVersion="0.8.0"
+<ExtensionManifest Version="7.0" ExtensionBundleId="ru.splat.penpot2ai" ExtensionBundleVersion="0.9.0"
   ExtensionBundleName="Penpot → Illustrator" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="ru.splat.penpot2ai.panel" Version="0.8.0"/>
+    <Extension Id="ru.splat.penpot2ai.panel" Version="0.9.0"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
