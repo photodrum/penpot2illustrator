@@ -51,7 +51,7 @@
     if (f.fillImage) {
       var im = f.fillImage;
       return { type: 'image', mediaId: im.id, iw: im.width, ih: im.height, mtype: im.mtype,
-               keepAspect: im.keepAspectRatio !== false, opacity: op };
+               keepAspect: im.keepAspectRatio !== false, opacity: op, ref: f.fillColorRefId || null };
     }
     if (f.fillColorGradient) {
       var g = f.fillColorGradient;
@@ -62,10 +62,10 @@
         stops: (g.stops || []).map(function (s) {
           return { color: hex(s.color), opacity: num(s.opacity, 1), offset: num(s.offset, 0) };
         }),
-        opacity: op
+        opacity: op, ref: f.fillColorRefId || null
       };
     }
-    if (f.fillColor) return { type: 'solid', color: hex(f.fillColor), opacity: op };
+    if (f.fillColor) return { type: 'solid', color: hex(f.fillColor), opacity: op, ref: f.fillColorRefId || null };
     warn(T('неподдерживаемая заливка', 'unsupported fill'));
     return null;
   }
@@ -87,7 +87,8 @@
       align: s.strokeAlignment || 'center',
       style: s.strokeStyle || 'solid',
       cap: cap === 'round' || cap === 'circle-marker' ? 'round' : (cap === 'square' ? 'square' : 'butt'),
-      join: attrs.strokeLinejoin || 'miter'
+      join: attrs.strokeLinejoin || 'miter',
+      ref: s.strokeColorRefId || null
     };
     if (s.strokeColorGradient && s.strokeColorGradient.stops && s.strokeColorGradient.stops[0])
       st.color = hex(s.strokeColorGradient.stops[0].color);
@@ -224,7 +225,9 @@
       opacity: num(f0.fillOpacity, 1),
       transform: g('textTransform', 'none'),
       decoration: g('textDecoration', 'none'),
-      align: g('textAlign', 'left')
+      align: g('textAlign', 'left'),
+      ref: f0.fillColorRefId || null,
+      typo: g('typographyRefId', null) || null
     };
   }
 
@@ -263,7 +266,7 @@
     var merged = [];
     out.forEach(function (r) {
       var last = merged[merged.length - 1];
-      var key = function (x) { return [x.family, x.weight, x.italic, x.size, x.color, x.opacity, x.tracking, x.decoration, x.script || ''].join('|'); };
+      var key = function (x) { return [x.family, x.weight, x.italic, x.size, x.color, x.opacity, x.tracking, x.decoration, x.script || '', x.ref || '', x.typo || ''].join('|'); };
       if (last && key(last) === key(r)) last.text += r.text;
       else merged.push(Object.assign({}, r));
     });
@@ -441,7 +444,7 @@
     if (!board) throw new Error(T('Доска не найдена: ', 'Board not found: ') + boardId);
     var bx = board.x, by = board.y;
     var warnings = [], media = {};
-    var stats = { shapes: 0 };
+    var stats = { shapes: 0 }, svgRaw = [];
     var keepHidden = opts.hidden !== 'skip' && opts.skipHidden !== true;
 
     function warn(name, msg) { warnings.push((name ? '«' + name + '»: ' : '') + msg); }
@@ -587,7 +590,7 @@
             '" viewBox="' + (vb ? [vb.x, vb.y, vb.width, vb.height].join(' ') : [sr.x, sr.y, sr.width, sr.height].join(' ')) + '">' +
             (defs ? '<defs>' + defs + '</defs>' : '') + inner + '</svg>';
           n = { kind: 'svg', name: s.name, x: sr.x - bx, y: sr.y - by, w: sr.width, h: sr.height, markup: markup };
-          warn(s.name, T('svg-raw перенесён через импорт SVG — проверьте вид', 'svg-raw imported as SVG — check the result'));
+          svgRaw.push(s.name || 'svg');
           return decorate(n, s, false);
         }
         default: warn(s.name, T('тип «', 'type “') + s.type + T('» не поддерживается', '” is not supported')); return null;
@@ -679,6 +682,7 @@
       tree: tree,
       media: Object.keys(media).map(function (k) { return media[k]; }),
       warnings: warnings,
+      svgRaw: svgRaw,
       stats: stats
     };
   }
@@ -705,6 +709,77 @@
     return cur ? cur.id : null;
   }
 
+  // ---- Библиотеки: цвета и типографика ----
+  function values(m) {
+    if (!m) return [];
+    if (Array.isArray(m)) return m.slice();
+    return Object.keys(m).map(function (k) { return m[k]; });
+  }
+  function fullName(it) {
+    var parts = [];
+    String(it.path || '').split('/').concat(String(it.name || '').split('/')).forEach(function (p) {
+      p = p.trim(); if (p) parts.push(p);
+    });
+    return parts.join(' / ') || String(it.id || '');
+  }
+  function libColor(c) {
+    if (!c || !c.id) return null;
+    var out = { id: c.id, name: fullName(c), opacity: num(c.opacity, 1) };
+    if (c.gradient && c.gradient.stops && c.gradient.stops.length) {
+      var g = convFill({ fillColorGradient: c.gradient, fillOpacity: out.opacity }, function () {});
+      if (!g) return null;
+      out.type = g.type; out.stops = g.stops;
+    } else if (c.color) {
+      out.type = 'solid'; out.color = hex(c.color);
+    } else return null;
+    return out;
+  }
+  function libTypo(t) {
+    if (!t || !t.id) return null;
+    var fs = num(t.fontSize, 14);
+    var lh = parseFloat(t.lineHeight);
+    return {
+      id: t.id, name: fullName(t),
+      family: t.fontFamily || 'sourcesanspro',
+      weight: parseInt(t.fontWeight, 10) || 400,
+      italic: /italic/i.test(String(t.fontStyle || '') + String(t.fontVariantId || '')),
+      size: fs,
+      lh: isFinite(lh) && lh > 0 ? lh : 1.2,
+      tracking: Math.round(num(t.letterSpacing, 0) / fs * 1000)
+    };
+  }
+  // Цвета и типографика из data файла; only — {id: true}, если нужны не все.
+  function libraryOf(file, only) {
+    var d = file.data || file, out = { colors: [], typos: [] };
+    values(d.colors).forEach(function (c) { if (!only || only[c && c.id]) { c = libColor(c); if (c) out.colors.push(c); } });
+    values(d.typographies).forEach(function (t) { if (!only || only[t && t.id]) { t = libTypo(t); if (t) out.typos.push(t); } });
+    var byName = function (a, b) { return a.name.localeCompare(b.name); };
+    out.colors.sort(byName); out.typos.sort(byName);
+    return out;
+  }
+  // Какие цвета/типографика библиотек использованы на досках: { colors: {id: fileId}, typos: {id: fileId} }.
+  function refsUsed(file, pageId, boardIds) {
+    var objs = objectsOf(file, pageId), want = {}, out = { colors: {}, typos: {} };
+    var self = file.id || null;
+    boardIds.forEach(function (b) { want[b] = true; });
+    function col(id, f) { if (id) out.colors[id] = f || self; }
+    function walk(node) {
+      if (!node || typeof node !== 'object') return;
+      (node.fills || []).forEach(function (f) { if (f) col(f.fillColorRefId, f.fillColorRefFile); });
+      if (node.typographyRefId) out.typos[node.typographyRefId] = node.typographyRefFile || self;
+      (node.children || []).forEach(walk);
+    }
+    Object.keys(objs).forEach(function (id) {
+      var s = objs[id];
+      if (!s || s.id === ROOT_ID) return;
+      if (!want[s.id] && !want[topBoard(objs, s)]) return;
+      (s.fills || []).forEach(function (f) { if (f) col(f.fillColorRefId, f.fillColorRefFile); });
+      (s.strokes || []).forEach(function (st) { if (st) col(st.strokeColorRefId, st.strokeColorRefFile); });
+      if (s.type === 'text') walk(s.content);
+    });
+    return out;
+  }
+
   function parseLink(link) {
     var m = String(link || '').match(/file-id=([0-9a-f-]{36})/i);
     var p = String(link || '').match(/page-id=([0-9a-f-]{36})/i);
@@ -712,7 +787,8 @@
     return { fileId: m ? m[1] : null, pageId: p ? p[1] : null, server: host ? host[1] : null };
   }
 
-  api = { lang: 'ru', pages: pages, boards: boards, convert: convert, fontsUsed: fontsUsed, parsePath: parsePath, parseLink: parseLink };
+  api = { lang: 'ru', pages: pages, boards: boards, convert: convert, fontsUsed: fontsUsed, parsePath: parsePath, parseLink: parseLink,
+    libraryOf: libraryOf, refsUsed: refsUsed };
   if (typeof window !== 'undefined') window.P2A = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(this);

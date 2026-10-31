@@ -28,6 +28,8 @@
 - **Эффекты** — наружные и внутренние тени, размытие слоя, размытие фона («стекло»), режимы наложения, прозрачность.
 - **Трансформации** — поворот, отражение, наклон.
 - **Картинки** — встраиваются или связываются; WebP и SVG конвертируются автоматически.
+- **Библиотеки** — цвета Penpot становятся глобальными образцами Illustrator, типографика — стилями абзаца и символа; объекты и тексты связаны с ними.
+- **Привязка к Penpot** — в «Примечании» каждого объекта хранится его id в Penpot (переживает копирование и группировку).
 - **Прочее** — скрытые слои переносятся скрытыми, модульные сетки становятся направляющими, порядок слоёв в досках с авторасстановкой как в Penpot.
 - **Интерфейс** — в стиле панелей Illustrator, подстраивается под 4 темы, русский и английский язык.
 
@@ -74,7 +76,7 @@
 - [ ] **Интерактивное (умное) сохранение Illustrator → Penpot** — правки, сделанные в Illustrator, отправляются обратно в файл Penpot: изменённые слои обновляются, новые добавляются, нетронутые не меняются.
 - [ ] **Синхронизация Penpot → Illustrator** — обновление уже собранных досок без пересборки, с сохранением ручных правок.
 - [ ] **Компоненты Penpot → символы Illustrator** — главные компоненты и их копии становятся символами.
-- [ ] **Библиотеки и токены** — цвета Penpot → образцы Illustrator, типографика → стили абзацев и символов.
+- [ ] **Дизайн-токены Penpot** — перенос токенов в Illustrator.
 - [ ] **Пакетная сборка** — несколько файлов или страниц за один запуск, сборка в отдельные документы.
 - [ ] **Экспорт результата** — сохранение собранных досок сразу в AI / PDF / SVG.
 - [ ] **Версия для Photoshop** — доски Penpot как PSD со слоями и редактируемым текстом.
@@ -109,6 +111,8 @@ Denis Lampusov · © 2026
 - **Effects** — drop and inner shadows, layer blur, background blur (“glass”), blend modes, opacity.
 - **Transforms** — rotation, flip, skew.
 - **Images** — embedded or linked; WebP and SVG are converted automatically.
+- **Libraries** — Penpot colors become global Illustrator swatches, typography becomes paragraph and character styles; objects and text are linked to them.
+- **Link to Penpot** — each object’s Note holds its Penpot id (survives copying and grouping).
 - **Also** — hidden layers stay hidden, layout grids become guides, z-order in auto-layout boards matches Penpot.
 - **UI** — styled like native Illustrator panels, follows all 4 UI themes, Russian and English.
 
@@ -155,7 +159,7 @@ Planned for future versions:
 - [ ] **Interactive (smart) save Illustrator → Penpot** — edits made in Illustrator are sent back to the Penpot file: changed layers are updated, new ones added, untouched ones left as they are.
 - [ ] **Sync Penpot → Illustrator** — update already built boards without a full rebuild, keeping manual edits.
 - [ ] **Penpot components → Illustrator symbols** — main components and their copies become symbols.
-- [ ] **Libraries and tokens** — Penpot colors → Illustrator swatches, typography → paragraph and character styles.
+- [ ] **Penpot design tokens** — bring tokens into Illustrator.
 - [ ] **Batch build** — several files or pages in one run, each into its own document.
 - [ ] **Export** — save the built boards straight to AI / PDF / SVG.
 - [ ] **Photoshop version** — Penpot boards as a layered PSD with editable text.
