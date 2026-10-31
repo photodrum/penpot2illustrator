@@ -18,7 +18,7 @@
     thumbs: {}, serverThumbs: null, thumbGen: 0 };
 
   var settings = { server: 'https://design.penpot.app', token: '', link: '', overrides: {}, keepHidden: true, embed: true,
-    target: 'new', layout: 'penpot', guides: true, autoFonts: true, lang: null, open: {}, connOk: null,
+    target: 'new', layout: 'penpot', guides: true, autoFonts: true, library: true, lang: null, open: {}, connOk: null,
     srcMode: 'browse', teamId: null, fileId: null, boardView: 'list' };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) {}
   function save() { try { localStorage.setItem(LS, JSON.stringify(settings)); } catch (e) {} }
@@ -60,6 +60,21 @@
       cep.evalScript(code, function (r) { res(r); });
     });
   }
+  // Версия панели — из CSXS/manifest.xml, чтобы не расходилась с установленной.
+  function showVersion() {
+    var v = '';
+    try {
+      if (hasNode && cep) {
+        var dir = decodeURI(cep.getSystemPath('extension')).replace(/^file:\/\//, '');
+        if (dir.charAt(0) === '/' && dir.charAt(2) === ':') dir = dir.slice(1);
+        var m = fs.readFileSync(pathM.join(dir, 'CSXS', 'manifest.xml'), 'utf8').match(/ExtensionBundleVersion="([^"]+)"/);
+        if (m) v = m[1];
+      }
+    } catch (e) {}
+    $('ver').textContent = v ? 'v' + v : '';
+    $('ver').hidden = !v;
+  }
+
   function ensureHost() {
     return host('typeof PI !== "undefined" && typeof PI.board === "function"').then(function (r) {
       if (r === 'true') return;
@@ -645,16 +660,79 @@
     (node.children || []).forEach(function (c) { attachMedia(c, map); });
   }
 
-  function placements(ids, limit) {
+  // Цвета и типографика: вся библиотека этого файла + использованное из подключённых библиотек.
+  var libCache = {};
+  function libraryFile(id) {
+    if (libCache[id]) return libCache[id];
+    libCache[id] = request(serverUrl() + '/api/rpc/command/get-file?id=' + id, { headers: authHeaders(true) })
+      .then(function (r) { return JSON.parse(r.buf.toString('utf8')); });
+    return libCache[id];
+  }
+  function collectLibrary(ids) {
+    var own = P2A.libraryOf(S.file);
+    var refs = P2A.refsUsed(S.file, S.pageId, ids), ext = {};
+    var have = {};
+    own.colors.forEach(function (c) { have[c.id] = true; });
+    own.typos.forEach(function (t) { have[t.id] = true; });
+    ['colors', 'typos'].forEach(function (kind) {
+      Object.keys(refs[kind]).forEach(function (id) {
+        var f = refs[kind][id];
+        if (have[id] || !f || f === S.file.id) return;
+        (ext[f] = ext[f] || {})[id] = true;
+      });
+    });
+    var files = Object.keys(ext);
+    if (!files.length || !hasNode || !settings.token) {
+      if (files.length) log(tr('Цвета и стили из подключённых библиотек не перенесены: нужен токен доступа', 'Colors and styles from linked libraries were not transferred: an access token is needed'), 'warn');
+      return Promise.resolve(own);
+    }
+    return Promise.all(files.map(function (fid) {
+      return libraryFile(fid).then(function (lf) {
+        var part = P2A.libraryOf(lf, ext[fid]);
+        own.colors = own.colors.concat(part.colors); own.typos = own.typos.concat(part.typos);
+      }, function (e) {
+        log(tr('Библиотека {id} не загружена: {e}', 'Library {id} was not loaded: {e}', { id: fid, e: e.message }), 'warn');
+      });
+    })).then(function () { return own; });
+  }
+
+  function placements(ids, lim) {
     var sel = S.boards.filter(function (b) { return ids.indexOf(b.id) >= 0; });
     var minX = Math.min.apply(null, sel.map(function (b) { return b.x; }));
     var minY = Math.min.apply(null, sel.map(function (b) { return b.y; }));
     var maxX = Math.max.apply(null, sel.map(function (b) { return b.x + b.w; }));
     var maxY = Math.max.apply(null, sel.map(function (b) { return b.y + b.h; }));
-    if (maxX - minX > limit || maxY - minY > limit) return null;
+    if (maxX - minX > lim.w || maxY - minY > lim.h) return null;
     var out = { pos: {}, w: maxX - minX, h: maxY - minY };
     sel.forEach(function (b) { out.pos[b.id] = { x: b.x - minX, y: b.y - minY }; });
     return out;
+  }
+
+  // Колонки: каждая доска встаёт в самую короткую колонку — доски разной высоты укладываются плотно.
+  // Число колонок — чтобы раскладка была ближе к квадрату и помещалась в lim.
+  function gridPlacements(ids, lim) {
+    var gap = 100, sel = ids.map(function (id) { return S.boards.filter(function (b) { return b.id === id; })[0]; }).filter(Boolean);
+    if (!sel.length) return null;
+    var colW = Math.max.apply(null, sel.map(function (b) { return b.w; }));
+    function lay(cols) {
+      var hs = [], out = { pos: {}, w: 0, h: 0 }, k;
+      for (k = 0; k < cols; k++) hs.push(0);
+      sel.forEach(function (b) {
+        var m = 0;
+        for (k = 1; k < cols; k++) if (hs[k] < hs[m] - 0.5) m = k;
+        out.pos[b.id] = { x: m * (colW + gap), y: hs[m] };
+        hs[m] += b.h + gap;
+        out.w = Math.max(out.w, m * (colW + gap) + b.w);
+      });
+      out.h = Math.max.apply(null, hs) - gap;
+      return out;
+    }
+    var best = null;
+    for (var c = 1; c <= sel.length; c++) {
+      var g = lay(c), side = Math.max(g.w, g.h);
+      if (g.w <= lim.w && g.h <= lim.h && (!best || side < best.side)) { best = g; best.side = side; }
+    }
+    return best;
   }
 
   function setBusy(b) {
@@ -668,12 +746,8 @@
     setBusy(true);
     clearLog(); setLogOpen(false);
     var first = S.boards.filter(function (b) { return b.id === ids[0]; })[0];
-    var t0 = Date.now(), done = 0, warnTotal = 0;
-    var place = settings.layout === 'penpot' ? placements(ids, settings.target === 'new' ? 15000 : 7500) : null;
-    if (settings.layout === 'penpot' && !place)
-      log(settings.target === 'new'
-        ? tr('Доски разнесены шире 15 000 pt — это больше холста Illustrator, раскладываю сеткой', 'Boards span more than 15,000 pt — larger than the Illustrator canvas, arranging in a grid')
-        : tr('Доски разнесены шире 7500 pt — в текущем документе раскладываю сеткой (в новом документе поместится до 15 000 pt)', 'Boards span more than 7,500 pt — arranging in a grid in the current document (a new document fits up to 15,000 pt)'), 'warn');
+    var t0 = Date.now(), done = 0, warnTotal = 0, svgRaw = [];
+    var place = null, newDoc = settings.target === 'new';
     status(tr('Подготовка документа…', 'Preparing the document…'));
     $('build').textContent = t('btn.building', { i: 0, n: ids.length });
     progress(0.02, 1);
@@ -683,12 +757,39 @@
       if (!go) throw { silent: true };
     }).then(function () {
       return host('PI.embedImages=' + (settings.embed ? 'true' : 'false') + ';PI.begin(' + lit({
-        newDoc: settings.target === 'new', w: first.w, h: first.h, layout: place ? 'penpot' : 'grid', rasterPpi: 300,
-        extent: place ? { w: place.w, h: place.h } : null,
+        newDoc: newDoc, w: first.w, h: first.h, rasterPpi: 300,
         layerName: 'Penpot · ' + S.fileName, overrides: settings.overrides
       }) + ')');
     }).then(function (r) {
       if (r.indexOf('OK:') !== 0) throw new Error(r.replace(/^ERR:/, ''));
+      var parts = r.slice(3).split('|'), lim = { w: +parts[0] || 0, h: +parts[1] || 0 };
+      var where = newDoc ? tr('холст Illustrator', 'the Illustrator canvas') : tr('свободное место справа от досок документа', 'the free space to the right of the document artboards');
+      var size = Math.round(lim.w) + ' × ' + Math.round(lim.h) + ' pt';
+      if (settings.layout === 'penpot') {
+        place = placements(ids, lim);
+        if (!place) log(tr('Доски в Penpot разнесены шире, чем {w} ({s}) — раскладываю колонками', 'Boards in Penpot span more than {w} ({s}) — arranging in columns', { w: where, s: size }), 'warn');
+      }
+      if (!place) place = gridPlacements(ids, lim);
+      if (!place) log(tr('Выбранные доски не помещаются на {w} ({s}) даже колонками — часть досок не встанет; соберите их частями{n}',
+        'The selected boards do not fit on {w} ({s}) even in columns — some will fail; build them in parts{n}',
+        { w: where, s: size, n: newDoc ? '' : tr(' или в новый документ', ' or into a new document') }), 'warn');
+      return place ? host('PI.layout(' + lit({ extent: { w: place.w, h: place.h } }) + ')') : null;
+    }).then(function () {
+      if (!settings.library) return;
+      return collectLibrary(ids).then(function (lib) {
+        if (!lib.colors.length && !lib.typos.length) return;
+        status(tr('Образцы и стили…', 'Swatches and styles…'));
+        return host('PI.library(' + lit({ group: 'Penpot · ' + S.fileName, colors: lib.colors, typos: lib.typos }) + ')').then(function (res) {
+          if (res.indexOf('OK:') === 0) {
+            var n = res.slice(3).split(',');
+            log(tr('Библиотека: образцов {c}, стилей {t}', 'Library: {c} swatches, {t} styles', { c: n[0], t: n[1] }), 'ok');
+          } else log(tr('Библиотека не перенесена: {e}', 'Library was not transferred: {e}', { e: res.replace(/^ERR:/, '') }), 'warn');
+          return host('PI.takeLog()');
+        }).then(function (hl) {
+          if (hl) hl.split('\n').forEach(function (l) { if (l) { log('  ' + l, 'warn'); warnTotal++; } });
+        });
+      });
+    }).then(function () {
       var chain = Promise.resolve();
       ids.forEach(function (id) {
         chain = chain.then(function () {
@@ -704,7 +805,9 @@
           return Promise.all(dl).then(function () {
             attachMedia(conv.tree, map);
             conv.warnings.forEach(function (w) { log(conv.board.name + ': ' + w, 'warn'); warnTotal++; });
-            return host('PI.board(' + lit({ board: conv.board, tree: conv.tree, place: place ? place.pos[id] : null, guides: settings.guides }) + ')');
+            if (conv.svgRaw && conv.svgRaw.length) svgRaw.push({ board: conv.board.name, n: conv.svgRaw.length });
+            var ref = { file: S.file.id || '', page: S.pageId, revn: S.file.revn != null ? S.file.revn : null };
+            return host('PI.board(' + lit({ board: conv.board, tree: conv.tree, place: place ? place.pos[id] : null, guides: settings.guides, ref: ref }) + ')');
           }).then(function (res) {
             if (res.indexOf('OK:') === 0) log('✓ ' + res.slice(3), 'ok');
             else log('✕ ' + conv.board.name + ': ' + res.replace(/^ERR:/, ''), 'err');
@@ -718,6 +821,11 @@
       });
       return chain;
     }).then(function () {
+      if (svgRaw.length) {
+        log(tr('SVG-вставки (svg-raw) перенесены через импорт SVG — проверьте вид: {l}', 'SVG inserts (svg-raw) were imported as SVG — check how they look: {l}',
+          { l: svgRaw.map(function (x) { return x.board + ' (' + x.n + ')'; }).join(', ') }), 'warn');
+        warnTotal++;
+      }
       var msg = tr('Готово: {b} за {s} с', 'Done: {b} in {s} s', { b: boardWord(done, false), s: ((Date.now() - t0) / 1000).toFixed(0) });
       if (warnTotal) msg += tr(', замечаний: {w}', ', notes: {w}', { w: warnTotal });
       status(msg, warnTotal ? 'warn' : 'ok');
@@ -805,6 +913,7 @@
 
   function init() {
     applyTheme();
+    showVersion();
     if (cep) { try { cep.addEventListener('com.adobe.csxs.events.ThemeColorChanged', applyTheme); } catch (e) {} }
     setLang(detectLang(), false);
     initSections();
@@ -812,7 +921,7 @@
 
     $('server').value = settings.server; $('token').value = settings.token; $('link').value = settings.link;
     $('keepHidden').checked = settings.keepHidden; $('embed').checked = settings.embed; $('guides').checked = settings.guides;
-    $('autoFonts').checked = settings.autoFonts; $('layout').value = settings.layout;
+    $('autoFonts').checked = settings.autoFonts; $('layout').value = settings.layout; $('library').checked = settings.library;
     setTarget(settings.target); setConn(settings.connOk);
     if (!settings.token) toggleConn(true);
 
@@ -877,6 +986,7 @@
     $('keepHidden').addEventListener('change', function () { settings.keepHidden = this.checked; save(); });
     $('guides').addEventListener('change', function () { settings.guides = this.checked; save(); });
     $('embed').addEventListener('change', function () { settings.embed = this.checked; save(); });
+    $('library').addEventListener('change', function () { settings.library = this.checked; save(); });
 
     $('build').addEventListener('click', buildAll);
     $('logToggle').addEventListener('click', function () { setLogOpen($('log').hidden); });
